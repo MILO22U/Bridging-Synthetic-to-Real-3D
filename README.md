@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="figures/banner.svg" alt="EASU Banner" width="100%"/>
+  <img src="banner.svg" alt="Banner" width="100%"/>
 </p>
 
-<h1 align="center">EASU — Single-Image 3D Point Cloud Reconstruction</h1>
+<h1 align="center">Bridging Synthetic-to-Real 3D Reconstruction</h1>
 
 <p align="center">
-  <b>Bridging the Synthetic-to-Real Gap with a Hybrid CNN-Transformer Architecture</b>
+  <b>Single-Image 3D Point Cloud Reconstruction with a Hybrid CNN-Transformer</b>
 </p>
 
 <p align="center">
@@ -13,8 +13,8 @@
   <a href="#"><img src="https://img.shields.io/badge/PyTorch-2.1+-ee4c2c.svg?style=flat-square&logo=pytorch&logoColor=white" alt="PyTorch"/></a>
   <a href="#"><img src="https://img.shields.io/badge/CUDA-12.1-76b900.svg?style=flat-square&logo=nvidia&logoColor=white" alt="CUDA"/></a>
   <a href="#"><img src="https://img.shields.io/badge/params-17.5M-orange.svg?style=flat-square" alt="Parameters"/></a>
-  <a href="#"><img src="https://img.shields.io/badge/CD-0.0081-success.svg?style=flat-square" alt="Chamfer Distance"/></a>
-  <a href="#"><img src="https://img.shields.io/badge/license-MIT-green.svg?style=flat-square" alt="License"/></a>
+  <a href="#"><img src="https://img.shields.io/badge/Chamfer_Distance-0.0081-success.svg?style=flat-square" alt="Chamfer Distance"/></a>
+  <a href="#"><img src="https://img.shields.io/badge/F@0.05-0.686-success.svg?style=flat-square" alt="F-Score"/></a>
 </p>
 
 <p align="center">
@@ -25,25 +25,34 @@
   <a href="#training">Training</a> •
   <a href="#evaluation">Evaluation</a> •
   <a href="#domain-adaptation">Domain Adaptation</a> •
-  <a href="#changelog">Changelog</a>
+  <a href="#experiment-log">Experiment Log</a>
 </p>
 
 ---
 
 ## Overview
 
-**EASU** (**E**ncoder-**A**ttention-**S**elf-attention-**U**pproject) is a hybrid CNN-Transformer model that reconstructs a 3D point cloud from a **single RGB image**. Trained entirely on synthetic ShapeNet renders, EASU generalizes to real-world photographs through domain adaptation strategies including Test-Time Augmentation, DANN, and AdaIN style transfer.
+This project tackles the problem of **reconstructing a 3D point cloud from a single RGB image** using a hybrid CNN-Transformer architecture. The model is trained entirely on **synthetic ShapeNet renders** and evaluated on both synthetic test data and **real-world photographs**, addressing the synthetic-to-real domain gap through four systematic strategies.
 
-> **Course Project** — AI 535: Deep Learning, Oregon State University, March 2026  
+> **AI 535: Deep Learning** — Oregon State University, March 2026
 > **Author:** Mrinal Bharadwaj
 
-### Highlights
+### What This Project Does
 
-- **6× lower Chamfer Distance** than the Pix2Vox 3D-CNN baseline at comparable parameter count
-- **2048-point** dense output with fine-grained geometric detail
-- **4 domain adaptation strategies** systematically evaluated for synthetic→real transfer
-- Trains in **~35 hours** on a single RTX 4070 Ti Super (16 GB)
-- Comprehensive **bug discovery & fix documentation** (see [Changelog](#changelog))
+Given a single photograph of an object, the model outputs a **2048-point 3D point cloud** representing the object's shape. The pipeline:
+
+1. A **ResNet-18 encoder** (pretrained on ImageNet) extracts visual features from the input image
+2. A **Cross-Attention Bridge** maps 49 image tokens to 2048 learnable 3D query tokens
+3. A **Transformer Decoder** refines the queries through self-attention
+4. An **MLP Head** projects each query to (x, y, z) coordinates
+
+### Key Achievements
+
+- **6x lower Chamfer Distance** than the Pix2Vox 3D-CNN baseline (0.0081 vs 0.0911)
+- **2048-point** dense output capturing fine geometric details (F@0.01 doubled over 1024-pt model)
+- **4 domain adaptation strategies** systematically evaluated: TTA, DANN, AdaIN, Training Augmentation
+- **13 ShapeNet categories**, 31,832 training samples, trained on a single RTX 4070 Ti Super (16 GB)
+- Comprehensive [experiment log](EXPERIMENT_LOG.md) and [code changelog](CODE_CHANGELOG.md) documenting every decision and bug fix
 
 ---
 
@@ -81,7 +90,7 @@
 
 | Airplane | Car | Lamp | Cabinet |
 |:--------:|:---:|:----:|:-------:|
-| <img src="figures/synth_airplane.png" width="200"/> | <img src="figures/synth_car1.png" width="200"/> | <img src="figures/synth_lamp.png" width="200"/> | <img src="figures/synth_cabinet.png" width="200"/> |
+| <img src="visualizations/presentation/synth_airplane.png" width="200"/> | <img src="visualizations/presentation/synth_car1.png" width="200"/> | <img src="visualizations/presentation/synth_lamp.png" width="200"/> | <img src="visualizations/presentation/synth_cabinet.png" width="200"/> |
 
 </td>
 </tr>
@@ -93,7 +102,7 @@
 
 | Car (BMW) | Monitor | Desk Lamp | Rifle |
 |:---------:|:-------:|:---------:|:-----:|
-| <img src="figures/real_car.png" width="200"/> | <img src="figures/real_monitor.png" width="200"/> | <img src="figures/real_lamp.png" width="200"/> | <img src="figures/real_rifle2.png" width="200"/> |
+| <img src="visualizations/presentation/real_car.png" width="200"/> | <img src="visualizations/presentation/real_monitor.png" width="200"/> | <img src="visualizations/presentation/real_lamp.png" width="200"/> | <img src="visualizations/presentation/real_rifle2.png" width="200"/> |
 
 </td>
 </tr>

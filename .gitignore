@@ -83,8 +83,15 @@ missing_car_pcs.txt
 chromeremotedesktophost.msi
 iCUESetup*
 
-# ─── CLAUDE CONFIG ──────────────────────────────────────────
+# ─── CLAUDE / SESSION FILES ─────────────────────────────────
 .claude/
+SESSION_REPORT.md
+ADD_IMAGES_TO_REPORT.md
+ADD_THESE_TO_PRESENTATION.md
+COMPLETE_PROJECT_BRIEFING.md
+diagnostic_and_fixes.md
+presentation_notes.md
+report_package/INSTRUCTIONS_FOR_CLAUDE.md
 
 # ─── PYTHON CACHE ───────────────────────────────────────────
 __pycache__/

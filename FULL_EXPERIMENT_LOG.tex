@@ -1,0 +1,530 @@
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{times}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage[margin=0.85in]{geometry}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{caption}
+
+% Colors
+\definecolor{codegreen}{rgb}{0.15,0.55,0.15}
+\definecolor{codered}{rgb}{0.7,0.1,0.1}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codebg}{rgb}{0.96,0.96,0.96}
+\definecolor{bugred}{rgb}{0.85,0.15,0.15}
+\definecolor{fixgreen}{rgb}{0.1,0.6,0.1}
+
+% Listings style
+\lstset{
+  basicstyle=\ttfamily\scriptsize,
+  backgroundcolor=\color{codebg},
+  commentstyle=\color{codegreen},
+  keywordstyle=\color{blue},
+  stringstyle=\color{codered},
+  numbers=none,
+  breaklines=true,
+  frame=single,
+  framerule=0.3pt,
+  rulecolor=\color{codegray},
+  xleftmargin=2pt,
+  xrightmargin=2pt,
+  aboveskip=4pt,
+  belowskip=4pt,
+  columns=flexible,
+  keepspaces=true,
+  showstringspaces=false,
+  language=Python,
+}
+
+% Compact sections
+\titlespacing*{\section}{0pt}{8pt}{4pt}
+\titlespacing*{\subsection}{0pt}{6pt}{3pt}
+\titlespacing*{\subsubsection}{0pt}{4pt}{2pt}
+\setlength{\parskip}{2pt}
+\setlength{\parindent}{0pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize AI 535 — Experiment Log}
+\fancyhead[R]{\footnotesize Mrinal Bharadwaj}
+\fancyfoot[C]{\thepage}
+
+\title{\textbf{Complete Experiment Log:}\\
+\textbf{Bridging the Synthetic-to-Real Gap}\\
+\textbf{in 3D Object Reconstruction}\\[6pt]
+\large Day 0 to Present --- Code Changelog \& Results}
+
+\author{Mrinal Bharadwaj\\
+AI 535 --- Deep Learning\\
+Oregon State University\\
+March 2026}
+
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+%=============================================================================
+\section{Project Overview}
+%=============================================================================
+
+\textbf{Goal:} Single-image 3D point cloud reconstruction. Train on synthetic ShapeNet renders, measure domain gap on real photos, bridge the gap using 4 domain adaptation strategies.
+
+\textbf{Architecture:} Hybrid CNN-Transformer ``EASU'' (17.5M parameters). ResNet-18 encoder (ImageNet pretrained) produces 49$\times$512 image tokens. Cross-attention bridge (2 layers, 8 heads) maps 2048 learnable query tokens to image features. Transformer decoder (4 self-attention layers, 8 heads) refines queries. MLP head projects each query to $(x,y,z)$ coordinates, producing a 2048-point cloud.
+
+\textbf{Hardware:} RTX 4070 Ti Super (16\,GB VRAM), Windows, \texttt{D:\textbackslash DL\textbackslash}, conda \texttt{recon3d}.
+
+\subsection{Timeline}
+
+\begin{table}[h]
+\centering
+\scriptsize
+\begin{tabular}{@{}clp{3.8cm}@{}}
+\toprule
+\textbf{Day} & \textbf{Date} & \textbf{Key Event} \\
+\midrule
+0 & Early Mar & Data pipeline; depth GT (bad) \\
+1 & Early Mar & First training; poor results \\
+2 & Mid Mar & Cap3D PLY GT; 2.6$\times$ improvement \\
+3 & Mar 14--15 & Retraining; CD 0.0059 \\
+4 & Mar 15--16 & Domain adaptation (buggy code) \\
+5 & Mar 16 & ResNet-34 attempt (interrupted) \\
+6 & Mar 17 & \textbf{7 bugs found \& fixed} \\
+7 & Mar 17--18 & 2048-pt retraining begins \\
+8 & Mar 19--22 & Training to 100 epochs \\
+9 & Mar 23 & Full experiment rerun \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=============================================================================
+\section{Day 0 --- Data Acquisition}
+%=============================================================================
+
+\textbf{What was done:} Downloaded ShapeNet R2N2 renderings (13 categories, $\sim$45K objects, 24 views each), Cap3D rendered images from HuggingFace, and Cap3D PLY point clouds (52,472 objects). Created data pipeline scripts: \texttt{download\_shapenet\_renders.py}, \texttt{restructure\_renders.py}, \texttt{preresize\_images.py} (512$\to$224), \texttt{download\_cap3d.py}, \texttt{convert\_cap3d\_ply\_v2.py} (ASCII PLY $\to$ NPY, 2048$\times$3).
+
+\textbf{Key issue:} \texttt{Cap3D\_pcs.npz} download initially failed (file was only 15 bytes). As fallback, generated point clouds from depth maps via \texttt{generate\_pointclouds.py} --- these were \textbf{fundamentally broken} (scattered clusters due to camera extrinsic misalignment).
+
+\textbf{Next step:} Train with available data; investigate GT quality.
+
+%=============================================================================
+\section{Day 1 --- First Training (Bad GT)}
+%=============================================================================
+
+Two training runs on 5 categories with depth-projected GT:
+
+\begin{table}[h]
+\centering
+\scriptsize
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Run} & \textbf{CD $\downarrow$} & \textbf{F@0.05 $\uparrow$} & \textbf{Notes} \\
+\midrule
+Run 1 & 0.1767 & 0.0221 & Early stop, epoch 37 \\
+Run 2 & 0.0154 & 0.4383 & Lower LR \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Observation:} Clear performance ceiling --- model couldn't learn accurate shapes from scattered GT clusters. The data, not the model, was the bottleneck.
+
+%=============================================================================
+\section{Day 2 --- Fixed Ground Truth}
+%=============================================================================
+
+Successfully downloaded Cap3D PLY point clouds. Wrote \texttt{convert\_cap3d\_ply\_v2.py} for ASCII PLY$\to$NPY conversion. Sub-sampled 16384$\to$2048 points. Verified with \texttt{check\_pointclouds.py} --- clean, solid 3D shapes.
+
+\textbf{Impact:} This was the \textbf{single biggest improvement} --- 2.6$\times$ CD improvement with zero model changes (confirmed Day 3).
+
+%=============================================================================
+\section{Day 3 --- Cap3D Retraining}
+%=============================================================================
+
+\textbf{Run 3:} 5 categories, Cap3D GT, ResNet-18, 100 epochs.
+\textbf{CD: 0.0059 | F@0.05: 0.6807} (epoch 85). 2.6$\times$ better than depth GT.
+
+\textbf{Run 4:} 13 categories, Cap3D GT, 100 epochs.
+CD: 0.0161 | F@0.05: 0.4235. Harder problem, expected degradation.
+
+\textbf{Pix2Vox baseline:} CD 0.0911 | F@0.05 0.1857 (3D CNN, 16.6M params). Our transformer is \textbf{6$\times$ better} on CD.
+
+%=============================================================================
+\section{Day 4 --- Domain Adaptation (Buggy)}
+%=============================================================================
+
+\textit{All experiments below used OLD code with undetected bugs. Results are contaminated (see Day~6).}
+
+\begin{table}[h]
+\centering
+\scriptsize
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Strategy} & \textbf{CD $\downarrow$} & \textbf{F@0.05 $\uparrow$} \\
+\midrule
+Base (Cap3D, 5-cat) & 0.0059 & 0.6807 \\
++ TTA (10 views) & 0.0058 & 0.6822 \\
++ Train Augmentation & 0.0155 & 0.4333 \\
++ DANN & 0.0157 & 0.4344 \\
++ AdaIN & 0.0329 & --- \\
+\bottomrule
+\end{tabular}
+\caption{Domain adaptation results (buggy code).}
+\end{table}
+
+No strategy showed dramatic improvement, which was suggestive of underlying code issues.
+
+%=============================================================================
+\section{Day 5 --- ResNet-34 Attempt}
+%=============================================================================
+
+Created \texttt{config\_improved.yaml}: ResNet-34, 200 epochs, 13 categories, 29.2M params. Training started but was \textbf{interrupted} by the bug-fix session on Day~6.
+
+%=============================================================================
+\section{Day 6 --- Bug Discovery \& Fix Session}
+\label{sec:bugs}
+%=============================================================================
+
+Real photo inference showed \textbf{diffuse blob predictions}. Investigation revealed \textbf{7 bugs} --- 3 critical, 2 major, 2 minor. All are documented with before/after code below.
+
+%-----------------------------------------------------------------------------
+\subsection{Change 1: Remove RandomHorizontalFlip}
+\textbf{File:} \texttt{dataset.py} | \textbf{Severity:} \textcolor{bugred}{CRITICAL}
+
+\textbf{Bug:} \texttt{RandomHorizontalFlip} flipped images but NOT GT point clouds. 50\% of training data had misaligned supervision --- model learned symmetric blobs.
+
+\textbf{Before (buggy):}
+\begin{lstlisting}
+transforms_list.extend([
+    T.Resize((224, 224)),
+    T.RandomResizedCrop(224, scale=(0.8, 1.0)),
+    T.RandomHorizontalFlip(p=0.5),  # BUG
+    T.ColorJitter(brightness=0.4, ...),
+])
+\end{lstlisting}
+
+\textbf{After (fixed):}
+\begin{lstlisting}
+transforms_list.extend([
+    T.Resize((224, 224)),
+    T.RandomResizedCrop(224,
+        scale=cfg_aug.get('random_crop_scale',
+                          (0.8, 1.0))),
+    T.ColorJitter(...),
+    # RandomHorizontalFlip REMOVED
+])
+\end{lstlisting}
+
+%-----------------------------------------------------------------------------
+\subsection{Change 2: Differential Learning Rate}
+\textbf{File:} \texttt{train.py} | \textbf{Severity:} \textcolor{bugred}{CRITICAL}
+
+\textbf{Bug:} Same LR (1e-4) for pretrained encoder and random decoder destroyed ImageNet features.
+
+\textbf{Before:}
+\begin{lstlisting}
+optimizer = optim.AdamW(
+    model.parameters(), lr=1e-4,
+    weight_decay=1e-4)
+\end{lstlisting}
+
+\textbf{After:}
+\begin{lstlisting}
+encoder_params = list(model.encoder.parameters())
+encoder_ids = set(id(p) for p in encoder_params)
+decoder_params = [p for p in model.parameters()
+                  if id(p) not in encoder_ids]
+
+optimizer = optim.AdamW([
+  {'params': encoder_params,
+   'lr': base_lr * 0.2},    # 2e-5
+  {'params': decoder_params,
+   'lr': base_lr * 5.0},    # 5e-4
+], weight_decay=cfg['training']['weight_decay'])
+\end{lstlisting}
+
+%-----------------------------------------------------------------------------
+\subsection{Change 3: Self-Attention 6$\to$4}
+\textbf{File:} \texttt{config.yaml} | \textbf{Severity:} Major
+
+\textbf{Before:} \texttt{self\_attn\_layers: 6} \\
+\textbf{After:} \texttt{self\_attn\_layers: 4}
+
+Guide recommended 4; 6 layers with 2048$\times$2048 attention matrices created optimization difficulty.
+
+%-----------------------------------------------------------------------------
+\subsection{Change 4: Warmup/Scheduler Fix}
+\textbf{File:} \texttt{train.py} | \textbf{Severity:} Major
+
+\textbf{Bug:} Manual warmup conflicted with \texttt{CosineAnnealingLR}'s internal counter.
+
+\textbf{Before:}
+\begin{lstlisting}
+scheduler = CosineAnnealingLR(optimizer,
+                              T_max=num_epochs)
+# Manual warmup loop conflicted with scheduler
+\end{lstlisting}
+
+\textbf{After:}
+\begin{lstlisting}
+warmup_sched = LinearLR(optimizer,
+    start_factor=0.1,
+    total_iters=warmup_epochs)
+cosine_sched = CosineAnnealingLR(optimizer,
+    T_max=num_epochs - warmup_epochs,
+    eta_min=base_lr * 0.01)
+scheduler = SequentialLR(optimizer,
+    schedulers=[warmup_sched, cosine_sched],
+    milestones=[warmup_epochs])
+\end{lstlisting}
+
+%-----------------------------------------------------------------------------
+\subsection{Change 5: evaluate\_reconstruction() API}
+\textbf{File:} \texttt{losses.py} | \textbf{Severity:} Major
+
+\textbf{Bug:} Wrong API: \texttt{chamfer\_distance(pred, gt, reduce='mean')} should be \texttt{bidirectional=True}. Also \texttt{f\_score()} returns tensor, not tuple. Validation crashed silently; \texttt{best\_model.pt} stuck at epoch 0.
+
+\textbf{Before:}
+\begin{lstlisting}
+cd_loss = chamfer_distance(pred, gt,
+                           reduce='mean')
+fs, prec, rec = f_score(pred, gt,
+                         threshold=t)
+results[f'f_score@{t}'] = fs
+\end{lstlisting}
+
+\textbf{After:}
+\begin{lstlisting}
+cd_loss, cd_p2g, cd_g2p = chamfer_distance(
+    pred, gt, bidirectional=True)
+results = {
+    'chamfer_distance': cd_loss.item(),
+    'cd_pred_to_gt': cd_p2g.item(),
+    'cd_gt_to_pred': cd_g2p.item(),
+}
+for t in thresholds:
+    fs = f_score(pred, gt, threshold=t)
+    results[f'f_score@{t}'] = fs.mean().item()
+\end{lstlisting}
+
+%-----------------------------------------------------------------------------
+\subsection{Changes 6--8: Minor Fixes}
+
+\textbf{Change 6} (\texttt{losses.py}): \texttt{ChamferLoss(reduce='mean')} $\to$ \texttt{ChamferLoss()}.
+
+\textbf{Change 7} (\texttt{train.py}): \texttt{total\_mem} $\to$ \texttt{total\_memory}.
+
+\textbf{Change 8} (\texttt{strategies.py}): Removed \texttt{RandomHorizontalFlip} from TTA class --- same flip bug at test time.
+
+%-----------------------------------------------------------------------------
+\subsection{Critical Discovery}
+
+\texttt{best\_model.pt} contained \textbf{epoch 0} (val\_cd=0.024), not the actual best. Root cause: Bug~5 crashed validation silently. Fix: copied \texttt{epoch\_100.pt} $\to$ \texttt{best\_model.pt}.
+
+%=============================================================================
+\section{Day 7 --- 2048-Point Retraining}
+%=============================================================================
+
+\textbf{Change 9:} Created \texttt{config\_2048.yaml} --- 2048 output points, batch\_size=12 (VRAM limit), 4 self-attn layers, differential LR, FP16 mixed precision.
+
+Training: 13 categories, 31,832 samples, 100 epochs.
+Speed: $\sim$2.1 it/s, $\sim$21 min/epoch.
+
+\textbf{Convergence (epochs 1--40):}
+
+\begin{table}[h]
+\centering
+\scriptsize
+\begin{tabular}{@{}ccc@{}}
+\toprule
+\textbf{Epoch} & \textbf{Val CD} & \textbf{$\Delta$} \\
+\midrule
+1 & 0.097805 & --- \\
+3 & 0.023438 & $-76\%$ \\
+6 & 0.014291 & $-39\%$ \\
+10 & 0.012392 & $-13\%$ \\
+17 & 0.010851 & $-12\%$ \\
+27 & 0.009838 & $-9\%$ \\
+40 & 0.009296 & $-6\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Rapid convergence in first 10 epochs; diminishing returns after.
+
+%=============================================================================
+\section{Day 8 --- Resume to 100 Epochs}
+%=============================================================================
+
+\textbf{Change 10:} Added scheduler fast-forward on checkpoint resume + file logging.
+
+Resumed from epoch 40. Completed March 22, 2026 at 21:12.
+
+\subsection{Final Results}
+
+\begin{table}[h]
+\centering
+\scriptsize
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Metric} & \textbf{Old 1024-pt} & \textbf{New 2048-pt} \\
+\midrule
+Best Val CD & 0.00582 & 0.00811 \\
+Test CD & 0.01522 & \textbf{0.00856} \\
+F@0.01 & 0.0196 & \textbf{0.0448} (+129\%) \\
+F@0.02 & 0.1211 & \textbf{0.2068} (+71\%) \\
+F@0.05 & 0.5865 & \textbf{0.6858} (+17\%) \\
+\bottomrule
+\end{tabular}
+\caption{Old vs.\ new model comparison. F-scores (which measure reconstruction quality at different thresholds) are dramatically better.}
+\end{table}
+
+\textbf{Best checkpoint:} \texttt{retrain\_2048/best.pt} (epoch $\sim$98, val CD 0.008105).
+
+%=============================================================================
+\section{Day 9 --- Full Experiment Rerun}
+%=============================================================================
+
+All domain adaptation strategies rerun with fixed 2048-pt model.
+
+\begin{table}[h]
+\centering
+\scriptsize
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Experiment} & \textbf{Status} & \textbf{CD} & \textbf{F@0.05} \\
+\midrule
+Baseline (no TTA) & \textcolor{fixgreen}{PASS} & 0.00858 & 0.6829 \\
+TTA (synthetic) & \textcolor{fixgreen}{PASS} & 0.00917 & 0.6761 \\
+AdaIN $\alpha$=0.3 & \textcolor{bugred}{FAIL} & --- & OOM \\
+AdaIN $\alpha$=0.5 & \textcolor{bugred}{FAIL} & --- & OOM \\
+AdaIN $\alpha$=0.8 & \textcolor{bugred}{FAIL} & --- & OOM \\
+TTA (real photos) & \textcolor{fixgreen}{PASS} & --- & 27/27 \\
+\bottomrule
+\end{tabular}
+\caption{Day 9 experiment results. TTA hurts 2048-pt model.}
+\end{table}
+
+\textbf{Key finding:} TTA \textit{hurts} the 2048-pt model (CD 0.00917 vs.\ 0.00858). The larger model is already well-calibrated; averaging augmented views adds noise.
+
+\textbf{Changes 11--13:} OOM fixes for AdaIN (\texttt{run\_adain.py}: sequential CPU$\to$GPU with Welford stats), batch-size-1 evaluation (\texttt{eval\_adain.py}), and DANN with 2048 points (\texttt{run\_dann\_v2.py}: batch\_size=8).
+
+%=============================================================================
+\section{Code Change Summary}
+%=============================================================================
+
+\begin{table}[h]
+\centering
+\scriptsize
+\begin{tabular}{@{}clll@{}}
+\toprule
+\textbf{\#} & \textbf{Day} & \textbf{Type} & \textbf{Description} \\
+\midrule
+1 & 6 & \textcolor{bugred}{CRIT} & Remove flip aug \\
+2 & 6 & \textcolor{bugred}{CRIT} & Differential LR \\
+3 & 6 & Major & self\_attn 6$\to$4 \\
+4 & 6 & Major & SequentialLR \\
+5 & 6 & Major & evaluate API fix \\
+6 & 6 & Minor & ChamferLoss ctor \\
+7 & 6 & Minor & total\_memory typo \\
+8 & 6 & Major & TTA flip removal \\
+9 & 7 & Arch & 2048-pt config \\
+10 & 8 & Infra & Scheduler resume \\
+11 & 9 & OOM & AdaIN CPU$\to$GPU \\
+12 & 9 & OOM & batch-size-1 eval \\
+13 & 9 & Infra & DANN 2048-pt \\
+\bottomrule
+\end{tabular}
+\caption{All 13 code changes across the project.}
+\end{table}
+
+%=============================================================================
+\section{Cumulative Results}
+%=============================================================================
+
+\begin{table*}[t]
+\centering
+\small
+\begin{tabular}{@{}lccccccl@{}}
+\toprule
+\textbf{Method} & \textbf{Points} & \textbf{Epochs} & \textbf{CD $\downarrow$} & \textbf{F@0.01 $\uparrow$} & \textbf{F@0.02 $\uparrow$} & \textbf{F@0.05 $\uparrow$} & \textbf{Notes} \\
+\midrule
+Pix2Vox baseline & 1024 & --- & 0.0911 & --- & --- & 0.1857 & 3D CNN (16.6M) \\
+Ours (depth GT) & 1024 & 37 & 0.0154 & --- & --- & 0.4383 & Bad GT \\
+Ours (Cap3D, 5-cat) & 1024 & 100 & 0.0059 & 0.0223 & 0.1428 & 0.6807 & Old code, best old \\
+Ours + TTA (1024) & 1024 & 100 & 0.0058 & --- & --- & 0.6822 & Marginal boost \\
+Ours + DANN & 1024 & --- & 0.0157 & --- & --- & 0.4344 & Old code \\
+Ours + AdaIN & 1024 & --- & 0.0329 & --- & --- & --- & Hurts synthetic \\
+\midrule
+\textbf{Ours (fixed, 13-cat)} & \textbf{2048} & \textbf{100} & \textbf{0.00811} & \textbf{0.0448} & \textbf{0.2068} & \textbf{0.6858} & \textbf{All bugs fixed} \\
+Ours + TTA (2048) & 2048 & 100 & 0.00917 & --- & --- & 0.6761 & TTA hurts \\
+\bottomrule
+\end{tabular}
+\caption{Complete results across all experiments. The bug-fixed 2048-pt model achieves 6$\times$ lower CD than Pix2Vox and 129\% better F@0.01 than the old 1024-pt model.}
+\end{table*}
+
+%=============================================================================
+\section{Lessons Learned}
+%=============================================================================
+
+\begin{enumerate}[nosep,leftmargin=*]
+\item \textbf{Spatial augmentations must be consistent across modalities.} \texttt{RandomHorizontalFlip} without flipping point cloud $x$-coordinates = 50\% contradictory supervision $\to$ symmetric blobs.
+
+\item \textbf{Pretrained encoders need lower LR.} Same LR for pretrained and random layers destroys ImageNet features. Use differential: encoder $0.2\times$ base, decoder $5\times$ base.
+
+\item \textbf{Verify loss/metric API signatures.} \texttt{chamfer\_distance(pred, gt, reduce='mean')} silently fails --- should be \texttt{bidirectional=True}. Always test with dummy data.
+
+\item \textbf{Inspect checkpoints.} \texttt{best\_model.pt} was epoch 0. Always verify: \texttt{print(ckpt['epoch'], ckpt['val\_cd'])}.
+
+\item \textbf{Test VRAM before long runs.} batch\_size=16 with 2048 points = 21\,GB on 16\,GB card.
+
+\item \textbf{Background removal is critical} for synthetic$\to$real transfer at test time.
+
+\item \textbf{GT quality $>$ model complexity.} Depth-projected $\to$ Cap3D mesh-sampled: 2.6$\times$ CD improvement, zero model changes.
+\end{enumerate}
+
+%=============================================================================
+\section{API Reference}
+%=============================================================================
+
+\begin{lstlisting}
+# losses.py -- CORRECT signatures
+def chamfer_distance(pred, target,
+                     bidirectional=True):
+    # Returns: (cd, cd_p2t, cd_t2p) -- scalars
+    # Uses SQUARED L2 distances
+
+class ChamferDistanceLoss(nn.Module):
+    def __init__(self, bidirectional=True):
+    # NO 'reduce' param
+
+def f_score(pred, target, threshold=0.01):
+    # Returns: (B,) tensor -- NOT tuple
+
+# model.py
+def build_model(cfg_dict):
+    # YAML dict -> (HybridReconstructor, disc)
+
+# dataset.py
+def create_dataloaders(cfg_dict):
+    # YAML dict -> (train, val, test)
+\end{lstlisting}
+
+\vspace{6pt}
+\noindent\rule{\columnwidth}{0.4pt}
+\begin{center}
+\small\textit{End of Experiment Log --- Last updated: March 23, 2026}
+\end{center}
+
+\end{document}

@@ -1,0 +1,385 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[margin=0.9in]{geometry}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{caption}
+
+\definecolor{codebg}{RGB}{245,245,245}
+\definecolor{keyword}{RGB}{0,0,180}
+\definecolor{comment}{RGB}{0,128,0}
+\definecolor{string}{RGB}{163,21,21}
+\definecolor{bugred}{RGB}{200,30,30}
+\definecolor{fixgreen}{RGB}{34,139,34}
+
+\lstset{
+    language=Python,
+    basicstyle=\ttfamily\scriptsize,
+    backgroundcolor=\color{codebg},
+    keywordstyle=\color{keyword}\bfseries,
+    commentstyle=\color{comment}\itshape,
+    stringstyle=\color{string},
+    showstringspaces=false,
+    breaklines=true,
+    frame=single,
+    framerule=0.5pt,
+    numbers=none,
+    tabsize=4,
+    xleftmargin=4pt,
+    xrightmargin=4pt,
+    aboveskip=6pt,
+    belowskip=6pt,
+}
+
+\lstdefinestyle{yaml}{
+    language={},
+    basicstyle=\ttfamily\scriptsize,
+    backgroundcolor=\color{codebg},
+    commentstyle=\color{comment}\itshape,
+    frame=single,
+    breaklines=true,
+    morecomment=[l]{\#},
+}
+
+\pagestyle{fancy}
+\fancyhead[L]{\textit{Code Change Log}}
+\fancyhead[R]{\textit{AI 535 --- Deep Learning}}
+\fancyfoot[C]{\thepage}
+
+\titleformat{\section}{\large\bfseries}{}{0em}{}[\vspace{-0.5em}\rule{\textwidth}{0.4pt}]
+\titleformat{\subsection}{\normalsize\bfseries}{}{0em}{}
+
+\title{\textbf{Code Change Log}\\[0.3em]
+\large Every Modification That Led to the Final Results}
+\author{Mrinal Bharadwaj\\Oregon State University --- AI 535 Deep Learning}
+\date{March 2026}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{center}
+\small
+\begin{tabular}{clllr}
+\toprule
+\textbf{\#} & \textbf{Change} & \textbf{File} & \textbf{Type} & \textbf{CD Impact} \\
+\midrule
+0  & Cap3D PLY ground truth & Data pipeline & Data quality & $0.0154 \to 0.0059$ ($2.6\times$) \\
+1  & Remove RandomHorizontalFlip & \texttt{dataset.py} & Critical fix & Eliminated blob predictions \\
+2  & Differential learning rate & \texttt{train.py} & Critical fix & Preserved encoder features \\
+3  & self\_attn\_layers $6 \to 4$ & \texttt{config.yaml} & Config fix & Easier optimization \\
+4  & SequentialLR scheduler & \texttt{train.py} & Scheduler fix & Correct LR curve \\
+5  & evaluate\_reconstruction API & \texttt{losses.py} & Validation fix & Best checkpoints saved correctly \\
+6  & ChamferLoss constructor & \texttt{losses.py} & Minor fix & --- \\
+7  & \texttt{total\_mem} typo & \texttt{train.py} & Minor fix & --- \\
+8  & TTA flip removal & \texttt{strategies.py} & Fix & Correct TTA predictions \\
+9  & 2048-point config & \texttt{config\_2048.yaml} & Architecture & F@0.01 doubled \\
+10 & Scheduler resume & \texttt{train.py} & Infrastructure & Correct LR after resume \\
+11 & AdaIN OOM fix & \texttt{run\_adain.py} & Infrastructure & Enabled experiments on 16\,GB \\
+12 & batch\_size=1 eval & \texttt{eval\_adain.py} & Infrastructure & VGG+model fit in 16\,GB \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%======================================================================
+\section*{Change 1 --- Remove RandomHorizontalFlip \hfill \normalfont\small\textcolor{bugred}{CRITICAL}}
+%======================================================================
+
+\textbf{File:} \texttt{dataset.py}, line $\sim$77 \hfill \textbf{Day 6 (March 17)}
+
+\textbf{Bug:} \texttt{RandomHorizontalFlip} flipped input images but \textit{not} the corresponding GT point clouds. 50\% of training data had misaligned supervision --- the model learned to predict symmetric blobs as a compromise.
+
+\vspace{4pt}
+\textbf{Before} \textcolor{bugred}{(buggy)}:
+\begin{lstlisting}
+transforms_list.extend([
+    T.Resize((224, 224)),
+    T.RandomResizedCrop(224, scale=(0.8, 1.0)),
+    T.RandomHorizontalFlip(p=0.5),  # BUG: flips image, not GT
+    T.ColorJitter(brightness=0.4, contrast=0.4, ...),
+])
+\end{lstlisting}
+
+\textbf{After} \textcolor{fixgreen}{(fixed)}:
+\begin{lstlisting}
+transforms_list.extend([
+    T.Resize((224, 224)),
+    T.RandomResizedCrop(224, scale=cfg_aug.get('random_crop_scale', (0.8, 1.0))),
+    # RandomHorizontalFlip REMOVED -- cannot flip images without
+    # also flipping GT point cloud x-coordinates
+    T.ColorJitter(brightness=cfg_aug.get('color_jitter', 0.4), ...),
+])
+\end{lstlisting}
+
+%======================================================================
+\section*{Change 2 --- Differential Learning Rate \hfill \normalfont\small\textcolor{bugred}{CRITICAL}}
+%======================================================================
+
+\textbf{File:} \texttt{train.py}, lines 254--275 \hfill \textbf{Day 6}
+
+\textbf{Bug:} Same LR ($10^{-4}$) for pretrained ResNet encoder and randomly-initialized decoder destroyed ImageNet features in the first few epochs.
+
+\vspace{4pt}
+\textbf{Before} \textcolor{bugred}{(buggy)}:
+\begin{lstlisting}
+optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
+\end{lstlisting}
+
+\textbf{After} \textcolor{fixgreen}{(fixed)}:
+\begin{lstlisting}
+base_lr = cfg['training']['learning_rate']  # 1e-4
+
+encoder_params = list(model.encoder.parameters())
+encoder_param_ids = set(id(p) for p in encoder_params)
+decoder_params = [p for p in model.parameters()
+                  if id(p) not in encoder_param_ids]
+
+optimizer = optim.AdamW([
+    {'params': encoder_params, 'lr': base_lr * 0.2},   # 2e-5
+    {'params': decoder_params, 'lr': base_lr * 5.0},   # 5e-4
+], weight_decay=cfg['training']['weight_decay'])
+\end{lstlisting}
+
+\textbf{Rationale:} Encoder (11.2M params, 63.8\%) has good ImageNet features --- gentle fine-tuning at $0.2\times$. Decoder (6.3M params, 36.2\%) is random --- fast learning at $5\times$.
+
+%======================================================================
+\section*{Change 3 --- Self-Attention Layers $6 \to 4$ \hfill \normalfont\small Major}
+%======================================================================
+
+\textbf{File:} \texttt{config.yaml}, line 20 \hfill \textbf{Day 6}
+
+\begin{lstlisting}[style=yaml]
+# Before:
+self_attn_layers: 6    # 2048x2048 attention matrices x 6 = hard to optimize
+
+# After:
+self_attn_layers: 4    # Per project guide recommendation
+\end{lstlisting}
+
+%======================================================================
+\section*{Change 4 --- SequentialLR Scheduler \hfill \normalfont\small Major}
+%======================================================================
+
+\textbf{File:} \texttt{train.py}, lines 283--299 \hfill \textbf{Day 6}
+
+\textbf{Bug:} Manual warmup in the training loop conflicted with \texttt{CosineAnnealingLR}'s internal step counter. LR dropped prematurely at epoch 5.
+
+\vspace{4pt}
+\textbf{Before} \textcolor{bugred}{(buggy)}:
+\begin{lstlisting}
+scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
+for epoch in range(num_epochs):
+    if epoch < warmup_epochs:
+        for pg in optimizer.param_groups:
+            pg['lr'] = base_lr * (epoch + 1) / warmup_epochs
+    scheduler.step()  # counter advances during warmup too!
+\end{lstlisting}
+
+\textbf{After} \textcolor{fixgreen}{(fixed)}:
+\begin{lstlisting}
+warmup_scheduler = LinearLR(optimizer,
+    start_factor=0.1, total_iters=warmup_epochs)
+cosine_scheduler = CosineAnnealingLR(optimizer,
+    T_max=num_epochs - warmup_epochs, eta_min=base_lr * 0.01)
+scheduler = SequentialLR(optimizer,
+    schedulers=[warmup_scheduler, cosine_scheduler],
+    milestones=[warmup_epochs])
+\end{lstlisting}
+
+%======================================================================
+\section*{Change 5 --- \texttt{evaluate\_reconstruction()} API Fix \hfill \normalfont\small Major}
+%======================================================================
+
+\textbf{File:} \texttt{losses.py} \hfill \textbf{Day 6}
+
+\textbf{Bug:} (a) Called \texttt{chamfer\_distance(pred, gt, reduce='mean')} --- \texttt{reduce} is not a valid parameter. (b) Called \texttt{f\_score()} expecting tuple \texttt{(fs, prec, rec)} --- it returns a single tensor. Both caused validation to crash silently, so \texttt{best\_model.pt} was stuck at epoch 0.
+
+\vspace{4pt}
+\textbf{Before} \textcolor{bugred}{(buggy)}:
+\begin{lstlisting}
+cd_loss = chamfer_distance(pred, gt, reduce='mean')
+fs, prec, rec = f_score(pred, gt, threshold=t)  # TypeError
+\end{lstlisting}
+
+\textbf{After} \textcolor{fixgreen}{(fixed)}:
+\begin{lstlisting}
+cd_loss, cd_p2g, cd_g2p = chamfer_distance(pred, gt, bidirectional=True)
+results = {
+    'chamfer_distance': cd_loss.item(),
+    'cd_pred_to_gt': cd_p2g.item(),
+    'cd_gt_to_pred': cd_g2p.item(),
+}
+for t in thresholds:
+    fs = f_score(pred, gt, threshold=t)
+    results[f'f_score@{t}'] = fs.mean().item()
+\end{lstlisting}
+
+\textbf{Impact:} This bug meant \texttt{best\_model.pt} contained epoch-0 weights (val\_cd=0.024) instead of the true best (val\_cd=0.0059). Discovered by inspecting checkpoint: \texttt{print(ckpt['epoch'], ckpt['val\_cd'])}.
+
+%======================================================================
+\section*{Change 8 --- TTA Flip Removal \hfill \normalfont\small Fix}
+%======================================================================
+
+\textbf{File:} \texttt{strategies.py}, \texttt{TestTimeAugmentation} class \hfill \textbf{Day 6}
+
+Same flip bug as Change~1, but in the TTA augmentation pipeline:
+\begin{lstlisting}
+# Before: included RandomHorizontalFlip(p=0.5)
+# After: removed -- flipping image without flipping predicted
+#        point cloud causes misalignment in averaged output
+self.augment = transforms.Compose([
+    transforms.ColorJitter(brightness=0.2, contrast=0.2,
+                           saturation=0.2, hue=0.05),
+    transforms.RandomAffine(degrees=5, translate=(0.05, 0.05),
+                            scale=(0.95, 1.05)),
+])
+\end{lstlisting}
+
+%======================================================================
+\section*{Change 9 --- 2048-Point Configuration \hfill \normalfont\small Architecture}
+%======================================================================
+
+\textbf{File:} \texttt{config\_2048.yaml} (new file) \hfill \textbf{Day 7}
+
+Key differences from \texttt{config.yaml}:
+
+\begin{lstlisting}[style=yaml]
+model:
+  num_query_tokens: 2048   # was 1024 -- doubled output density
+
+training:
+  batch_size: 12           # was 16 -- reduced for VRAM
+  warmup_epochs: 2         # was 5 -- shorter warmup
+  mixed_precision: true    # FP16 for VRAM savings
+
+data:
+  num_points: 2048         # match model output
+  train_categories: [all 13 synsets]
+
+logging:
+  save_dir: "./checkpoints/retrain_2048"
+\end{lstlisting}
+
+\textbf{VRAM constraint:} \texttt{batch\_size=12} is the maximum for 2048 points on 16\,GB RTX 4070 Ti Super. \texttt{batch\_size=16} requires 21\,GB.
+
+%======================================================================
+\section*{Change 10 --- Scheduler Resume Logic \hfill \normalfont\small Infrastructure}
+%======================================================================
+
+\textbf{File:} \texttt{train.py} \hfill \textbf{Day 8}
+
+Added fast-forward logic for resuming training from checkpoint:
+\begin{lstlisting}
+# After loading checkpoint, advance scheduler to correct epoch
+if start_epoch > 0:
+    for _ in range(start_epoch):
+        scheduler.step()
+    print(f"  Fast-forwarded scheduler to epoch {start_epoch}")
+\end{lstlisting}
+
+Also added file logging for PowerShell monitoring:
+\begin{lstlisting}
+file_handler = logging.FileHandler('training_log.txt')
+logger.addHandler(file_handler)
+# Monitor with: Get-Content training_log.txt -Tail 30 -Wait
+\end{lstlisting}
+
+%======================================================================
+\section*{Change 11 --- AdaIN OOM Fix \hfill \normalfont\small Infrastructure}
+%======================================================================
+
+\textbf{File:} \texttt{run\_adain.py} \hfill \textbf{Day 9}
+
+\textbf{Root cause:} \texttt{create\_dataloaders()} with \texttt{num\_workers=4} forks process memory. With the model already on GPU, 16\,GB was exhausted at inference sample 10/27.
+
+\vspace{4pt}
+\textbf{Fix --- sequential CPU$\to$GPU workflow:}
+\begin{lstlisting}
+# Step 1: Stats on CPU (no model on GPU yet)
+stats_cfg['training']['num_workers'] = 0  # no worker forks
+train_loader, _, _ = create_dataloaders(stats_cfg)
+syn_mean, syn_std = compute_synthetic_pixel_stats(train_loader)
+del train_loader  # FREE ALL MEMORY
+gc.collect(); torch.cuda.empty_cache()
+
+# Step 2: Style transfer on CPU
+styled_images = simple_adain(real_images, syn_mean, syn_std)
+del syn_mean, syn_std; gc.collect()
+
+# Step 3: NOW load model on GPU (nothing else occupying VRAM)
+model = HybridReconstructor(cfg['model']).to(device)
+
+# Step 4: Inference ONE image at a time
+for i in range(len(names)):
+    img = real_images[i:i+1].to(device)
+    pred = model(img).cpu()
+    del img; torch.cuda.empty_cache()
+\end{lstlisting}
+
+Also used Welford's online algorithm for stats (constant memory):
+\begin{lstlisting}
+def compute_synthetic_pixel_stats(dataloader, max_batches=100):
+    """O(1) memory regardless of dataset size."""
+    n, mean_acc, m2_acc = 0, torch.zeros(1,3,1,1), torch.zeros(1,3,1,1)
+    for i, batch in enumerate(dataloader):
+        if i >= max_batches: break
+        images = batch[0]
+        batch_mean = images.mean(dim=[0,2,3], keepdim=True)
+        batch_var = images.var(dim=[0,2,3], keepdim=True)
+        batch_n = images.shape[0]
+        delta = batch_mean - mean_acc
+        total = n + batch_n
+        mean_acc += delta * batch_n / total
+        m2_acc += batch_var*batch_n + delta**2 * n*batch_n/total
+        n += batch_n
+    return mean_acc, torch.sqrt(m2_acc / n) + 1e-8
+\end{lstlisting}
+
+%======================================================================
+\section*{Change 12 --- Batch-Size-1 VGG Evaluation \hfill \normalfont\small Infrastructure}
+%======================================================================
+
+\textbf{File:} \texttt{eval\_adain.py}, line 133 \hfill \textbf{Day 9}
+
+Both the reconstruction model and VGG-19 must be on GPU simultaneously. With 2048-point output, this only fits with \texttt{batch\_size=1}:
+
+\begin{lstlisting}
+loader = DataLoader(test_dataset, batch_size=1, num_workers=4)
+
+for img, pc, _ in tqdm(loader, desc="AdaIN eval"):
+    pred_orig = model(img.to(device))
+    styled = adain_model.transfer_to_synthetic_style(img.to(device), syn_stats)
+    pred_adain = model(styled)
+    cd_o, _, _ = chamfer_distance(pred_orig, pc.to(device))
+    cd_a, _, _ = chamfer_distance(pred_adain, pc.to(device))
+    del img, pc, pred_orig, pred_adain, styled
+    torch.cuda.empty_cache()  # clear cache every sample
+\end{lstlisting}
+
+%======================================================================
+\section*{Final Results}
+%======================================================================
+
+All changes combined produced the following progression:
+
+\begin{center}
+\begin{tabular}{llcccc}
+\toprule
+\textbf{Model} & \textbf{Changes Applied} & \textbf{CD $\downarrow$} & \textbf{F@0.01} & \textbf{F@0.02} & \textbf{F@0.05} \\
+\midrule
+Pix2Vox baseline & --- & 0.0911 & --- & --- & 0.1857 \\
+Ours (depth GT) & None (buggy) & 0.0154 & --- & --- & 0.4383 \\
+Ours (Cap3D GT) & Change 0 & 0.0059 & 0.0223 & 0.1428 & 0.6807 \\
+Ours (13-cat, fixed) & Changes 0--8 & 0.0059 & --- & --- & --- \\
+\textbf{Ours (2048-pt, final)} & \textbf{Changes 0--12} & \textbf{0.00811} & \textbf{0.0448} & \textbf{0.2068} & \textbf{0.6858} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\textbf{Best checkpoint:} \texttt{checkpoints/retrain\_2048/best.pt} (epoch $\sim$98, val CD 0.008105, 17.5M params)
+
+\end{document}

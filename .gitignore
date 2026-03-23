@@ -1,0 +1,130 @@
+# ==============================================================
+# .gitignore — Bridging-Synthetic-to-Real-3D
+# ==============================================================
+
+# ─── LARGE DATASETS (~50 GB) ────────────────────────────────
+data/shapenet/renders/
+data/shapenet/renders_224/
+data/shapenet/ShapeNetRendering/
+data/shapenet/images/
+data/cap3d/
+
+# ─── CHECKPOINTS (keep only best via LFS) ───────────────────
+checkpoints/base_pretrained/
+checkpoints/improved/
+checkpoints/13cat_best.pt
+checkpoints/cap3d_resnet18_best.pt
+checkpoints/augmented_best.pt
+checkpoints/dann/
+
+# Keep only: checkpoints/retrain_2048/best.pt (via LFS)
+checkpoints/retrain_2048/epoch_*.pt
+checkpoints/retrain_2048/last.pt
+
+# ─── TEMP / LOGS ────────────────────────────────────────────
+outputs/
+training_log.txt
+experiment_log.txt
+*.log
+
+# ─── UNRELATED / DUPLICATE FILES ────────────────────────────
+1512.03385v1.pdf
+535_final_project.pdf
+Homework*.pdf
+ONLINE_ML_HW_4.pdf
+local_regularization_project.zip
+Local_Regularization_*.pptx
+resnet14_cifar10.py
+cvpr2016AuthorKit.zip
+files.zip
+files2.zip
+visualizations.zip
+presentation_package.zip
+report_figures_package.zip
+AI535_Final_Repor1t_Overleaf.zip
+AI535_Final_Report_Overleaf.zip
+document_pdf.pdf
+presentation_v2.pptx
+~$*
+
+# ─── TEMP FOLDERS ───────────────────────────────────────────
+New folder/
+New folder (2)/
+
+# ─── DUPLICATE/OLD FILES ───────────────────────────────────
+README1.md
+README2.md
+UPLOAD_TO_GITHUB.md
+dataset_FIXED.py
+dataset_ORIGINAL.py
+train_FIXED.py
+train_ORIGINAL.py
+config_FIXED.yaml
+config_ORIGINAL.yaml
+PROJECT_GUIDE.py
+requirements1.txt
+requirements2.txt
+requirements3.txt
+requirements34.txt
+
+# ─── UNRELATED COURSEWORK / INSTALLERS ─────────────────────
+*.msi
+*.docx
+*.tmp
+hw4_solution.tex
+neurips_2024.sty
+ResNet14_CIFAR10_Assignment.ipynb
+local_regularization_project/
+envs/
+es/
+extra/
+datasets/
+missing_car_pcs.txt
+chromeremotedesktophost.msi
+iCUESetup*
+
+# ─── CLAUDE CONFIG ──────────────────────────────────────────
+.claude/
+
+# ─── PYTHON CACHE ───────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ─── ENVIRONMENT ────────────────────────────────────────────
+.env
+.venv/
+env/
+venv/
+
+# ─── IDE / OS ───────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── JUPYTER ────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ─── LATEX BUILD ARTIFACTS ──────────────────────────────────
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+
+# ─── EXTRA DATA/CHECKPOINTS ─────────────────────────────────
+data/cap3d_ply/
+data/shapenetcorev2_hdf5_2048.zip
+checkpoints/pix2vox/
+checkpoints/pix2vox_baseline/

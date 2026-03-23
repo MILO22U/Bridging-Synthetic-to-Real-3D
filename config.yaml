@@ -1,0 +1,109 @@
+# ============================================================
+# Bridging the Synthetic-to-Real Gap in 3D Object Reconstruction
+# Configuration File — FIXED VERSION
+# ============================================================
+# Changes:
+#   - self_attn_layers: 6 → 4 (reduces optimization difficulty)
+#   - Added comments noting critical fixes in dataset.py and train.py
+
+# --- Model ---
+model:
+  image_size: 224
+  encoder_backbone: "resnet18"
+  use_pretrained: true               # Professor feedback: USE pretrained weights
+  encoder_dim: 512
+  num_image_tokens: 49               # 7x7 grid from ResNet
+  num_query_tokens: 2048             # output point cloud size
+  query_dim: 256
+  cross_attn_layers: 2
+  cross_attn_heads: 8
+  self_attn_layers: 4                # FIX: was 6, reduced for better optimization
+  self_attn_heads: 8
+  mlp_hidden_dim: 512
+  dropout: 0.1
+  output_dim: 3                      # x, y, z
+
+# --- Training ---
+training:
+  batch_size: 16
+  num_epochs: 100
+  learning_rate: 1.0e-4              # Base LR — train_FIXED.py uses differential LR
+  weight_decay: 1.0e-4
+  scheduler: "cosine"
+  warmup_epochs: 5
+  grad_clip: 1.0
+  num_workers: 4
+  seed: 42
+  mixed_precision: true
+
+# --- Data ---
+data:
+  shapenet_root: "./data/shapenet"
+  cap3d_root: "./data/cap3d"
+  gso_root: "./data/gso"
+  real_images_dir: "./data/real_photos"
+  num_views: 24
+  num_points: 2048
+  train_categories:
+    - "02691156"   # airplane
+    - "02828884"   # bench
+    - "02933112"   # cabinet
+    - "02958343"   # car
+    - "03001627"   # chair
+    - "03211117"   # display
+    - "03636649"   # lamp
+    - "03691459"   # loudspeaker
+    - "04090263"   # rifle
+    - "04256520"   # sofa
+    - "04379243"   # table
+    - "04401088"   # telephone
+    - "04530566"   # watercraft
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+# --- Augmentation ---
+augmentation:
+  # Training-time augmentation (Strategy 1)
+  # NOTE: RandomHorizontalFlip REMOVED in dataset_FIXED.py
+  use_random_backgrounds: false   # Professor feedback: DISABLE random backgrounds for better convergence
+  background_dir: "./data/backgrounds"   # Make sure this dir exists with images!
+  color_jitter: 0.4
+  gaussian_blur_prob: 0.3
+  gaussian_blur_kernel: [5, 9]
+  random_crop_scale: [0.8, 1.0]
+  random_erasing_prob: 0.1
+  normalize_mean: [0.485, 0.456, 0.406]
+  normalize_std: [0.229, 0.224, 0.225]
+
+  # Test-time augmentation (Strategy 2)
+  tta_num_augmentations: 10
+  tta_color_jitter: 0.2
+  tta_crop_scale: [0.85, 1.0]
+
+# --- Domain Adaptation ---
+domain_adaptation:
+  dann_enabled: false
+  dann_lambda: 1.0
+  dann_alpha: 10.0
+  dann_discriminator_hidden: 256
+  
+  adain_enabled: false
+  adain_style_weight: 1.0
+  adain_content_weight: 1.0
+
+# --- Evaluation ---
+evaluation:
+  chamfer_reduce: "mean"
+  fscore_thresholds: [0.01, 0.02, 0.05]
+  visualize_predictions: true
+  num_visualization_samples: 20
+
+# --- Logging ---
+logging:
+  log_dir: "./outputs/logs"
+  save_dir: "./checkpoints"
+  save_every: 10
+  log_every: 50
+  wandb_project: "synthetic-to-real-3d"
+  wandb_enabled: false

@@ -1,0 +1,333 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+
+\definecolor{pass}{RGB}{34,139,34}
+\definecolor{fail}{RGB}{200,30,30}
+\definecolor{running}{RGB}{30,80,200}
+\definecolor{queued}{RGB}{128,128,128}
+
+\pagestyle{fancy}
+\fancyhead[L]{\textit{Experiment Log}}
+\fancyhead[R]{\textit{AI 535 --- Deep Learning}}
+\fancyfoot[C]{\thepage}
+
+\titleformat{\section}{\large\bfseries}{}{0em}{}[\vspace{-0.5em}\rule{\textwidth}{0.4pt}]
+\titleformat{\subsection}{\normalsize\bfseries\itshape}{}{0em}{}
+
+\title{\textbf{Experiment Log}\\[0.3em]
+\large Bridging the Synthetic-to-Real Gap in 3D Object Reconstruction}
+\author{Mrinal Bharadwaj\\Oregon State University --- AI 535 Deep Learning}
+\date{March 2026}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+%----------------------------------------------------------------------
+\section*{Day 0 --- Early March 2026 \hfill \normalfont\small Data Acquisition}
+%----------------------------------------------------------------------
+
+\subsection*{What was done}
+\begin{itemize}[nosep]
+    \item Downloaded ShapeNet R2N2 renderings (13 categories, $\sim$45K objects, 24 views each).
+    \item Downloaded Cap3D rendered images (8-view + depth) from HuggingFace.
+    \item Pre-resized images $512 \to 224$\,px $\to$ \texttt{renders\_224/}.
+    \item Attempted \texttt{Cap3D\_pcs.npz} download --- \textbf{failed} (file was 15 bytes).
+    \item Fallback: generated point clouds from depth maps via \texttt{generate\_pointclouds.py}.
+\end{itemize}
+
+\subsection*{Observation}
+Depth-projected point clouds were \textbf{fundamentally broken} --- camera extrinsic misalignment produced scattered, disconnected clusters instead of solid shapes. This bad GT poisoned early training (see Day~1).
+
+\subsection*{Next step}
+Train with available data to establish a baseline; investigate GT quality in parallel.
+
+%----------------------------------------------------------------------
+\section*{Day 1 --- Early March 2026 \hfill \normalfont\small First Training (Bad GT)}
+%----------------------------------------------------------------------
+
+\subsection*{What was done}
+Two training runs with 5 categories using depth-projected GT:
+
+\begin{center}
+\begin{tabular}{llcc}
+\toprule
+\textbf{Run} & \textbf{Notes} & \textbf{CD $\downarrow$} & \textbf{F@0.05 $\uparrow$} \\
+\midrule
+Run 1 & Early stop ep.~37 & 0.1767 & 0.0221 \\
+Run 2 & Lower LR, early stop & 0.0154 & 0.4383 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Observation}
+Performance ceiling was clear --- the model could not learn accurate shapes from scattered GT. Ground truth quality was confirmed as the bottleneck.
+
+\subsection*{Next step}
+Find proper mesh-sampled ground truth point clouds.
+
+%----------------------------------------------------------------------
+\section*{Day 2 --- Mid March 2026 \hfill \normalfont\small Fixed GT (Cap3D PLY)}
+%----------------------------------------------------------------------
+
+\subsection*{What was done}
+\begin{itemize}[nosep]
+    \item Downloaded Cap3D PLY point clouds (52,472 objects, 16,384 pts each).
+    \item Wrote \texttt{convert\_cap3d\_ply\_v2.py}: ASCII PLY $\to$ NPY ($2048 \times 3$).
+    \item Verified quality with \texttt{check\_pointclouds.py} --- clean, solid 3D shapes.
+\end{itemize}
+
+\subsection*{What changed}
+Replaced all depth-projected GT with mesh-sampled point clouds. This single change yielded a \textbf{2.6$\times$} CD improvement with zero model changes (see Day~3).
+
+\subsection*{Next step}
+Retrain model with clean GT.
+
+%----------------------------------------------------------------------
+\section*{Day 3 --- $\sim$March 14--15 \hfill \normalfont\small Cap3D Training + Baseline}
+%----------------------------------------------------------------------
+
+\subsection*{What was done}
+\begin{itemize}[nosep]
+    \item Run 3: 5 categories, Cap3D GT, ResNet-18, 100 epochs.
+    \item Run 4: 13 categories, Cap3D GT, ResNet-18, 100 epochs (31,832 samples).
+    \item Implemented \texttt{pix2vox\_baseline.py} (3D CNN) for comparison.
+\end{itemize}
+
+\begin{center}
+\begin{tabular}{llcc}
+\toprule
+\textbf{Model} & \textbf{Notes} & \textbf{CD $\downarrow$} & \textbf{F@0.05 $\uparrow$} \\
+\midrule
+Pix2Vox baseline & 3D CNN (16.6M) & 0.0911 & 0.1857 \\
+Ours (5-cat) & epoch 85 & \textbf{0.0059} & \textbf{0.6807} \\
+Ours (13-cat) & harder problem & 0.0161 & 0.4235 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Observation}
+Our transformer model is \textbf{6$\times$ better} than Pix2Vox on CD. 13-category model underperformed vs 5-cat (expected with more diverse shapes).
+
+\subsection*{What changed (ref Day~1)}
+CD improved $0.0154 \to 0.0059$ purely from GT quality ($2.6\times$).
+
+\subsection*{Next step}
+Domain adaptation experiments to bridge synthetic$\to$real gap.
+
+%----------------------------------------------------------------------
+\section*{Day 4 --- $\sim$March 15--16 \hfill \normalfont\small Domain Adaptation (Buggy Code)}
+%----------------------------------------------------------------------
+
+\subsection*{What was done}
+Four domain adaptation strategies (all with OLD code containing undetected bugs):
+\begin{enumerate}[nosep]
+    \item \textbf{Training-Time Augmentation} --- color jitter, blur, random erasing $\to$ CD 0.0155
+    \item \textbf{Test-Time Augmentation (TTA)} --- 10 views averaged $\to$ CD \textbf{0.0058}
+    \item \textbf{DANN} --- domain adversarial fine-tuning $\to$ CD 0.0157
+    \item \textbf{AdaIN Style Transfer} --- VGG feature matching $\to$ CD 0.0329 (hurts synthetic)
+\end{enumerate}
+
+\subsection*{Observation}
+TTA gave marginal free improvement. Other strategies showed no real gain. \textbf{Unknown at this time:} all results were contaminated by the flip augmentation bug (see Day~6).
+
+\subsection*{Next step}
+Try larger encoder + longer training.
+
+%----------------------------------------------------------------------
+\section*{Day 5 --- March 16 \hfill \normalfont\small ResNet-34 Attempt (Abandoned)}
+%----------------------------------------------------------------------
+
+\subsection*{What was done}
+Started training with ResNet-34 encoder (29.2M params), 200 epochs, 13 categories. \textbf{Interrupted} by bug-fix session (Day~6). Partial checkpoint in \texttt{checkpoints/improved/}.
+
+%----------------------------------------------------------------------
+\section*{Day 6 --- March 17 \hfill \normalfont\small\textcolor{fail}{Bug Discovery \& Fix (CRITICAL)}}
+%----------------------------------------------------------------------
+
+\subsection*{Trigger}
+Real photo inference showed \textbf{diffuse blob predictions}. Investigation revealed \textbf{7 bugs}:
+
+\begin{center}
+\small
+\begin{tabular}{clp{5.5cm}p{4.5cm}}
+\toprule
+\textbf{\#} & \textbf{Severity} & \textbf{Bug} & \textbf{Fix} \\
+\midrule
+1 & CRITICAL & \texttt{RandomHorizontalFlip} flipped images but NOT GT point clouds (50\% misaligned supervision) & Removed flip from transforms \\
+2 & CRITICAL & Same LR for pretrained encoder \& random decoder (destroyed ImageNet features) & Differential LR: enc $\times0.2$, dec $\times5.0$ \\
+3 & Major & \texttt{self\_attn\_layers=6} (should be 4) & Changed to 4 layers \\
+4 & Major & Warmup conflicted with CosineAnnealingLR & \texttt{SequentialLR} \\
+5 & Major & Wrong \texttt{chamfer\_distance()} API + wrong \texttt{f\_score()} return type & Correct API calls \\
+6 & Minor & \texttt{ChamferLoss(reduce='mean')} --- no such param & \texttt{ChamferLoss()} \\
+7 & Minor & \texttt{total\_mem} typo & \texttt{total\_memory} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Critical discovery}
+\texttt{best\_model.pt} contained \textbf{epoch 0} data --- Bug~5 crashed validation silently, so best-model saving never triggered.
+
+\subsection*{What changed (ref Day~4)}
+All prior domain adaptation results were contaminated. The flip bug alone caused the model to learn symmetric blobs. All experiments must be rerun.
+
+\subsection*{Next step}
+Retrain from scratch with all fixes, 2048-point output.
+
+%----------------------------------------------------------------------
+\section*{Day 7 --- March 17--18 \hfill \normalfont\small 2048-Point Retraining Begins}
+%----------------------------------------------------------------------
+
+\subsection*{What was done}
+\begin{itemize}[nosep]
+    \item Created \texttt{config\_2048.yaml}: 2048 output points (doubled from 1024).
+    \item VRAM test: max \texttt{batch\_size=12} on 16\,GB RTX 4070 Ti Super.
+    \item Training config: differential LR (enc $2\!\times\!10^{-5}$, dec $5\!\times\!10^{-4}$), \texttt{SequentialLR} warmup, FP16, grad clip 1.0.
+    \item Started training: 13 categories, 31,832 samples, 100 epochs.
+\end{itemize}
+
+\subsection*{Convergence (first 40 epochs)}
+\begin{center}
+\begin{tabular}{ccc}
+\toprule
+\textbf{Epoch} & \textbf{Val CD} & \textbf{$\Delta$} \\
+\midrule
+1  & 0.097805 & --- \\
+3  & 0.023438 & $-76\%$ \\
+6  & 0.014291 & $-39\%$ \\
+10 & 0.012392 & $-13\%$ \\
+17 & 0.010851 & $-12\%$ \\
+27 & 0.009838 & $-9\%$ \\
+40 & 0.009296 & $-6\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Observation}
+$\sim$2.1 it/s, $\sim$21 min/epoch. Rapid convergence in first 10 epochs, then diminishing returns.
+
+\subsection*{Next step}
+Resume to 100 epochs.
+
+%----------------------------------------------------------------------
+\section*{Day 8 --- March 19--22 \hfill \normalfont\small Training Complete (100 Epochs)}
+%----------------------------------------------------------------------
+
+\subsection*{What was done}
+\begin{itemize}[nosep]
+    \item Fixed scheduler resume logic (fast-forward cosine state on load).
+    \item Resumed from epoch 40, trained to epoch 100.
+    \item Completed: March 22, 2026 at 21:12.
+\end{itemize}
+
+\subsection*{Final results}
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Model} & \textbf{CD $\downarrow$} & \textbf{F@0.01 $\uparrow$} & \textbf{F@0.02 $\uparrow$} & \textbf{F@0.05 $\uparrow$} \\
+\midrule
+Old 1024-pt (100ep, TTA) & 0.00582 & 0.0223 & 0.1428 & 0.6822 \\
+\textbf{New 2048-pt (100ep)} & \textbf{0.00856} & \textbf{0.0448} & \textbf{0.2068} & \textbf{0.6858} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{What changed (ref Day~3)}
+F@0.01 \textbf{doubled} ($0.0223 \to 0.0448$), F@0.02 improved 44\%. CD numerically higher because $2\times$ more points cover larger surface area.
+
+\subsection*{Checkpoint}
+\texttt{checkpoints/retrain\_2048/best.pt} (epoch $\sim$98, val CD 0.008105).
+
+\subsection*{Next step}
+Rerun all domain adaptation experiments with fixed code and 2048-pt model.
+
+%----------------------------------------------------------------------
+\section*{Day 9 --- March 23 (AM) \hfill \normalfont\small Experiment Rerun}
+%----------------------------------------------------------------------
+
+\subsection*{What was done}
+\begin{itemize}[nosep]
+    \item Generated \texttt{visualizations2/} --- 30 synthetic samples, 27 real inferences, comparison charts.
+    \item Launched sequential experiment pipeline via \texttt{run\_all\_experiments.py}.
+\end{itemize}
+
+\subsection*{Experiment status}
+
+\begin{center}
+\small
+\begin{tabular}{llrl}
+\toprule
+\textbf{Experiment} & \textbf{Status} & \textbf{Time} & \textbf{Key Finding} \\
+\midrule
+Baseline (no TTA) & \textcolor{pass}{PASS} & --- & CD 0.00858, F@0.05 0.6829 \\
+TTA (synthetic) & \textcolor{pass}{PASS} & --- & CD 0.00917 --- TTA \textit{hurts} 2048-pt model \\
+AdaIN $\alpha\!=\!0.3$ & \textcolor{fail}{FAIL} & 1186s & OOM at sample 10/27 \\
+AdaIN $\alpha\!=\!0.5$ & \textcolor{fail}{FAIL} & 193s & OOM at sample 10/27 \\
+AdaIN $\alpha\!=\!0.8$ & \textcolor{fail}{FAIL} & 861s & OOM at sample 10/27 \\
+TTA real photos & \textcolor{pass}{PASS} & 47s & 27/27 processed; spread reduced \\
+AdaIN VGG eval & \textcolor{running}{RUNNING} & $\sim$3.5h & 3979 samples, batch\_size=1 \\
+DANN training & \textcolor{queued}{QUEUED} & est.~3--5h & 20 epochs, batch\_size=8 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Observations}
+\begin{itemize}[nosep]
+    \item TTA slightly \textit{hurts} the 2048-pt model (opposite of 1024-pt behavior). The larger model is already well-calibrated; averaging augmented views adds noise.
+    \item AdaIN OOM root cause: \texttt{create\_dataloaders()} with \texttt{num\_workers=4} forks process memory while model+VGG occupy GPU.
+    \item TTA on real photos reduces prediction spread in most cases ($\sim$8/10), indicating more stable predictions.
+\end{itemize}
+
+\subsection*{OOM fix applied (ref Day~6 lesson)}
+Reordered \texttt{run\_adain.py}: compute statistics on CPU first $\to$ delete dataloader $\to$ load model for inference. Awaiting rerun.
+
+\subsection*{TTA real photos --- spread analysis (subset)}
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Photo} & \textbf{Plain} & \textbf{TTA} & \textbf{$\Delta$} \\
+\midrule
+desk-lamp & 0.3113 & 0.1982 & $-36\%$ \\
+airplane & 0.2770 & 0.2325 & $-16\%$ \\
+car (red) & 0.2213 & 0.2048 & $-7\%$ \\
+wooden-chair & 0.2158 & 0.1959 & $-9\%$ \\
+monitor (old) & 0.2527 & 0.2660 & $+5\%$ (worse) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%----------------------------------------------------------------------
+\section*{Day 9 --- March 23 (06:18 AM) \hfill \normalfont\small\textcolor{running}{Current Status}}
+%----------------------------------------------------------------------
+
+\subsection*{Running}
+\texttt{eval\_adain.py} (PID 11808) --- started 02:44, $\sim$3.5h elapsed. Processing 3,979 samples with dual forward passes (model + VGG) per sample. GPU at 100\%, 15.8/16.4\,GB VRAM. \textbf{Estimated completion: imminent.}
+
+\subsection*{Remaining queue}
+\begin{center}
+\begin{tabular}{lrl}
+\toprule
+\textbf{Task} & \textbf{Est.\ Time} & \textbf{Status} \\
+\midrule
+DANN training (20 epochs) & 3--5\,h & Queued next \\
+AdaIN $\times 3$ rerun (OOM-fixed) & $\sim$30\,min & Queued \\
+Comparison chart regen & $\sim$2\,min & Queued \\
+Report/presentation update & --- & Pending final numbers \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Estimated total remaining: $\sim$4--6 hours.}
+
+\subsection*{Next step}
+Monitor VGG eval completion $\to$ DANN auto-starts $\to$ rerun fixed AdaIN $\to$ compile final results table $\to$ update report and presentation.
+
+\end{document}

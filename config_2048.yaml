@@ -1,0 +1,100 @@
+# ============================================================
+# Retraining Config — 2048 points, 13 categories, all bug fixes
+# March 17, 2026 — overnight run
+# ============================================================
+
+# --- Model ---
+model:
+  image_size: 224
+  encoder_backbone: "resnet18"
+  use_pretrained: true
+  encoder_dim: 512
+  num_image_tokens: 49
+  num_query_tokens: 2048             # 2048 output points for denser reconstruction
+  query_dim: 256
+  cross_attn_layers: 2
+  cross_attn_heads: 8
+  self_attn_layers: 4
+  self_attn_heads: 8
+  mlp_hidden_dim: 512
+  dropout: 0.1
+  output_dim: 3
+
+# --- Training ---
+training:
+  batch_size: 12                     # Max that fits in 16GB VRAM with 2048 points
+  num_epochs: 100                    # Continue from epoch 40 to 100
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-4
+  scheduler: "cosine"
+  warmup_epochs: 2
+  grad_clip: 1.0
+  num_workers: 4
+  seed: 42
+  mixed_precision: true
+
+# --- Data ---
+data:
+  shapenet_root: "./data/shapenet"
+  cap3d_root: "./data/cap3d"
+  gso_root: "./data/gso"
+  real_images_dir: "./data/real_photos"
+  real_photos_dir: "./data/real_photos"
+  num_views: 24
+  num_points: 2048                   # Match model output
+  train_categories:
+    - "02691156"   # airplane
+    - "02828884"   # bench
+    - "02933112"   # cabinet
+    - "02958343"   # car
+    - "03001627"   # chair
+    - "03211117"   # display
+    - "03636649"   # lamp
+    - "03691459"   # loudspeaker
+    - "04090263"   # rifle
+    - "04256520"   # sofa
+    - "04379243"   # table
+    - "04401088"   # telephone
+    - "04530566"   # watercraft
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+# --- Augmentation ---
+augmentation:
+  use_random_backgrounds: false
+  background_dir: "./data/backgrounds"
+  color_jitter: 0.4
+  gaussian_blur_prob: 0.3
+  gaussian_blur_kernel: [5, 9]
+  random_crop_scale: [0.8, 1.0]
+  random_erasing_prob: 0.1
+  normalize_mean: [0.485, 0.456, 0.406]
+  normalize_std: [0.229, 0.224, 0.225]
+  tta_num_augmentations: 10
+  tta_color_jitter: 0.2
+  tta_crop_scale: [0.85, 1.0]
+
+# --- Domain Adaptation ---
+domain_adaptation:
+  dann_enabled: false
+  dann_lambda: 1.0
+  dann_alpha: 10.0
+  dann_discriminator_hidden: 256
+  adain_enabled: false
+
+# --- Evaluation ---
+evaluation:
+  chamfer_reduce: "mean"
+  fscore_thresholds: [0.01, 0.02, 0.05]
+  visualize_predictions: true
+  num_visualization_samples: 20
+
+# --- Logging ---
+logging:
+  log_dir: "./outputs/logs/retrain_2048"
+  save_dir: "./checkpoints/retrain_2048"
+  save_every: 10
+  log_every: 50
+  wandb_project: "synthetic-to-real-3d"
+  wandb_enabled: false

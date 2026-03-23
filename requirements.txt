@@ -1,0 +1,39 @@
+# =========================================================================================================
+# AI 535 — Bridging Synthetic-to-Real Gap in 3D Reconstruction
+# Requirements
+# =========================================================================================================
+# Install PyTorch with CUDA first (separately):
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# Then install the rest:
+#   pip install -r requirements.txt
+# =========================================================================================================
+
+# Data downloading & processing
+requests>=2.31.0
+tqdm>=4.65.0
+plyfile>=1.0.3
+
+# 3D visualization & processing
+open3d>=0.17.0
+
+# Image processing
+Pillow>=10.0.0
+opencv-python>=4.8.0
+
+# ML & metrics
+numpy>=1.24.0
+scipy>=1.11.0
+matplotlib>=3.7.0
+pandas>=2.0.0
+
+# PyTorch3D (for Chamfer Distance)
+# Install separately — requires matching PyTorch + CUDA version:
+#   pip install pytorch3d -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py310_cu121_pyt230/download.html
+# Or build from source: https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md
+
+# Experiment tracking (optional but recommended)
+tensorboard>=2.14.0
+
+# Domain adaptation
+# torchvision (already installed with PyTorch)
+# kornia>=0.7.0  # optional: for advanced augmentations

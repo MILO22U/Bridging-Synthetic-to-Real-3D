@@ -61,25 +61,17 @@ def generate_synthetic_viz(model, dataloader, device, save_dir, n_samples=30):
 
 
 def generate_comparison_charts(save_dir):
-    """Generate comparison bar charts between old (1024-pt) and new (2048-pt) models."""
+    """Generate comparison bar charts across all experiments."""
     os.makedirs(save_dir, exist_ok=True)
 
-    # Old model results (1024-pt, base_pretrained, with TTA)
-    old_results = {
-        "name": "1024-pt (100ep, TTA)",
-        "cd": 0.005821,
-        "f01": 0.0223,
-        "f02": 0.1428,
-        "f05": 0.6822,
+    # ── All experiment results ──
+    baseline = {
+        "name": "Baseline (2048-pt)",
+        "cd": 0.008560, "f01": 0.0448, "f02": 0.2068, "f05": 0.6858,
     }
-
-    # New model results (2048-pt, retrain_2048, no TTA)
-    new_no_tta = {
-        "name": "2048-pt (100ep, no TTA)",
-        "cd": 0.008560,
-        "f01": 0.0448,
-        "f02": 0.2068,
-        "f05": 0.6858,
+    old_1024 = {
+        "name": "Old 1024-pt (TTA)",
+        "cd": 0.005821, "f01": 0.0223, "f02": 0.1428, "f05": 0.6822,
     }
 
     # Check if TTA results exist
@@ -91,51 +83,67 @@ def generate_comparison_charts(save_dir):
         if 'synthetic_tta' in tta_data:
             s = tta_data['synthetic_tta']
             new_tta = {
-                "name": "2048-pt (100ep, TTA)",
+                "name": "+ TTA (synthetic)",
                 "cd": s['chamfer_distance']['mean'],
                 "f01": s['fscore_0.01']['mean'],
                 "f02": s['fscore_0.02']['mean'],
                 "f05": s['fscore_0.05']['mean'],
             }
 
-    models = [old_results, new_no_tta]
+    adain_vgg = {
+        "name": "+ AdaIN VGG",
+        "cd": 0.050521, "f01": None, "f02": None, "f05": None,
+    }
+    dann_partial = {
+        "name": "+ DANN (partial)",
+        "cd": 0.009423, "f01": None, "f02": None, "f05": None,
+    }
+
+    # ── Chart 1: Strategy Comparison (CD only — all strategies) ──
+    strategies = [old_1024, baseline]
     if new_tta:
-        models.append(new_tta)
+        strategies.append(new_tta)
+    strategies.extend([dann_partial, adain_vgg])
+    strat_names = [m["name"] for m in strategies]
+    strat_cds = [m["cd"] for m in strategies]
+    strat_colors = ['#9E9E9E', '#2196F3', '#FF9800', '#9C27B0', '#F44336'][:len(strategies)]
 
-    names = [m["name"] for m in models]
-    colors = ['#4CAF50', '#2196F3', '#FF9800'][:len(models)]
-
-    # ── Chart 1: Chamfer Distance ──
-    fig, ax = plt.subplots(figsize=(8, 5))
-    cds = [m["cd"] for m in models]
-    bars = ax.bar(names, cds, color=colors, width=0.5)
-    for bar, val in zip(bars, cds):
-        ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 0.0002,
-                f'{val:.5f}', ha='center', va='bottom', fontsize=11, fontweight='bold')
-    ax.set_ylabel('Chamfer Distance (lower is better)')
-    ax.set_title('Chamfer Distance Comparison: Old vs New Model')
-    ax.tick_params(axis='x', rotation=10)
+    fig, ax = plt.subplots(figsize=(12, 6))
+    bars = ax.bar(strat_names, strat_cds, color=strat_colors, width=0.55)
+    for bar, val in zip(bars, strat_cds):
+        ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 0.0005,
+                f'{val:.5f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
+    ax.set_ylabel('Chamfer Distance (lower is better)', fontsize=12)
+    ax.set_title('Domain Adaptation Strategy Comparison — Chamfer Distance', fontsize=14)
+    ax.tick_params(axis='x', rotation=15)
+    ax.axhline(y=baseline["cd"], color='#2196F3', linestyle='--', alpha=0.4, label='Baseline')
+    ax.legend()
     plt.tight_layout()
     plt.savefig(os.path.join(save_dir, 'comparison_chamfer_distance.png'), dpi=150)
     plt.close()
     print("  Saved comparison_chamfer_distance.png")
 
-    # ── Chart 2: F-Scores ──
+    # ── Chart 2: F-Scores (models that have f-score data) ──
+    fscore_models = [old_1024, baseline]
+    if new_tta:
+        fscore_models.append(new_tta)
+    fscore_colors = ['#9E9E9E', '#2196F3', '#FF9800'][:len(fscore_models)]
+
     fig, ax = plt.subplots(figsize=(10, 5))
     thresholds = ['F@0.01', 'F@0.02', 'F@0.05']
     x = np.arange(len(thresholds))
     width = 0.25
 
-    for idx, m in enumerate(models):
+    for idx, m in enumerate(fscore_models):
         fscores = [m["f01"], m["f02"], m["f05"]]
-        offset = (idx - (len(models)-1)/2) * width
-        bars = ax.bar(x + offset, fscores, width, label=m["name"], color=colors[idx])
+        offset = (idx - (len(fscore_models)-1)/2) * width
+        bars = ax.bar(x + offset, fscores, width, label=m["name"], color=fscore_colors[idx])
         for bar, val in zip(bars, fscores):
             ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 0.005,
                     f'{val:.3f}', ha='center', va='bottom', fontsize=9)
 
     ax.set_ylabel('F-Score (higher is better)')
-    ax.set_title('F-Score Comparison: Old vs New Model')
+    ax.set_title('F-Score Comparison: Old 1024-pt vs New 2048-pt')
     ax.set_xticks(x)
     ax.set_xticklabels(thresholds)
     ax.legend()
@@ -146,27 +154,50 @@ def generate_comparison_charts(save_dir):
     print("  Saved comparison_fscores.png")
 
     # ── Chart 3: Summary table as image ──
-    fig, ax = plt.subplots(figsize=(10, 3))
+    fig, ax = plt.subplots(figsize=(12, 5))
     ax.axis('off')
-    headers = ['Model', 'CD ↓', 'F@0.01 ↑', 'F@0.02 ↑', 'F@0.05 ↑']
+    headers = ['Strategy', 'CD ↓', 'F@0.01 ↑', 'F@0.02 ↑', 'F@0.05 ↑', 'Notes']
     rows = []
-    for m in models:
-        rows.append([m["name"], f'{m["cd"]:.5f}', f'{m["f01"]:.4f}',
-                      f'{m["f02"]:.4f}', f'{m["f05"]:.4f}'])
+    notes = {
+        "Old 1024-pt (TTA)": "5-cat, old code",
+        "Baseline (2048-pt)": "★ Best model",
+        "+ TTA (synthetic)": "Hurts 2048-pt",
+        "+ DANN (partial)": "48% of epoch 1",
+        "+ AdaIN VGG": "6x worse",
+    }
+    all_models = [old_1024, baseline]
+    if new_tta:
+        all_models.append(new_tta)
+    all_models.extend([dann_partial, adain_vgg])
+
+    for m in all_models:
+        rows.append([
+            m["name"],
+            f'{m["cd"]:.5f}',
+            f'{m["f01"]:.4f}' if m["f01"] is not None else '—',
+            f'{m["f02"]:.4f}' if m["f02"] is not None else '—',
+            f'{m["f05"]:.4f}' if m["f05"] is not None else '—',
+            notes.get(m["name"], ""),
+        ])
 
     table = ax.table(cellText=rows, colLabels=headers, loc='center',
-                      cellLoc='center', colColours=['#E3F2FD']*5)
+                      cellLoc='center', colColours=['#E3F2FD']*6)
     table.auto_set_font_size(False)
-    table.set_fontsize(11)
+    table.set_fontsize(10)
     table.scale(1, 1.8)
-    ax.set_title('Model Comparison Summary', fontsize=14, pad=20)
+    # Highlight baseline row
+    for j in range(6):
+        table[2, j].set_facecolor('#E8F5E9')
+    ax.set_title('All Experiments Summary — 2048-pt Model', fontsize=14, pad=20)
     plt.tight_layout()
     plt.savefig(os.path.join(save_dir, 'comparison_summary_table.png'), dpi=150, bbox_inches='tight')
     plt.close()
     print("  Saved comparison_summary_table.png")
 
     # Save comparison JSON
-    summary = {m["name"]: {k: v for k, v in m.items() if k != "name"} for m in models}
+    summary = {}
+    for m in all_models:
+        summary[m["name"]] = {k: v for k, v in m.items() if k != "name" and v is not None}
     with open(os.path.join(save_dir, 'comparison_metrics.json'), 'w') as f:
         json.dump(summary, f, indent=2)
     print("  Saved comparison_metrics.json")

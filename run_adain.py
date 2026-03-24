@@ -254,6 +254,9 @@ def main():
     model.load_state_dict(ckpt['model_state_dict'])
     model.eval()
     print(f"  Loaded epoch {ckpt['epoch']}")
+    del ckpt
+    gc.collect()
+    torch.cuda.empty_cache()
 
     # 4. Run inference ONE image at a time
     print("\nStep 5: Running inference (1 image at a time)...")
@@ -265,15 +268,16 @@ def main():
             img_orig = real_images[i:i+1].to(device)
             pred_orig = model(img_orig).cpu()
             all_pred_original.append(pred_orig)
-            del img_orig
+            del img_orig, pred_orig
 
             img_styled = styled_images[i:i+1].to(device)
             pred_styled = model(img_styled).cpu()
             all_pred_styled.append(pred_styled)
-            del img_styled
+            del img_styled, pred_styled
 
+        gc.collect()
         torch.cuda.empty_cache()
-        if (i + 1) % 10 == 0:
+        if (i + 1) % 5 == 0:
             print(f"  [{i+1}/{len(names)}]")
 
     all_pred_original = torch.cat(all_pred_original)

@@ -135,3 +135,5 @@ data/cap3d_ply/
 data/shapenetcorev2_hdf5_2048.zip
 checkpoints/pix2vox/
 checkpoints/pix2vox_baseline/
+checkpoints/dann_2048/
+data/shapenet/*.tgz

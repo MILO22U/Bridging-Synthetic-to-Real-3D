@@ -1,5 +1,5 @@
 # Experiment Results — 2048-pt Model
-**Generated:** 2026-03-23 07:28
+**Generated:** 2026-03-23 21:40
 
 | # | Experiment | Status | Time | Output Dir |
 |---|-----------|--------|------|------------|
@@ -8,6 +8,7 @@
 | 3 | AdaIN alpha=0.8 | FAIL | 861s | `./visualizations2/adain_alpha0.8` |
 | 4 | TTA real photos | PASS | 47s | `./visualizations2/tta_real` |
 | 5 | AdaIN VGG eval | PASS | 17024s | `./visualizations2/adain_vgg` |
+| 6 | DANN training | FAIL | 51134s | `./checkpoints/dann_2048` |
 
 ---
 
@@ -15,12 +16,15 @@
 - Base model: `checkpoints/retrain_2048/best.pt` (val CD: 0.008105)
 - Config: `config_2048.yaml` (2048 pts, 13 categories, ResNet-18)
 
+- DANN checkpoint: `./checkpoints/dann_2048/best_model.pt`
+
 ## Visualization Directories
 All outputs in `visualizations2/`:
 - `AdaIN_VGG_eval.md` (results)
 - `AdaIN_alpha0.3.md` (results)
 - `AdaIN_alpha0.5.md` (results)
 - `AdaIN_alpha0.8.md` (results)
+- `DANN_training.md` (results)
 - `TTA_real_photos.md` (results)
 - `adain_alpha0.3/` — 0 files
 - `adain_alpha0.5/` — 0 files

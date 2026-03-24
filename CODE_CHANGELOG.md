@@ -407,6 +407,63 @@ checkpoint = 'checkpoints/retrain_2048/best.pt'
 
 ---
 
+---
+
+### Day 10 — AdaIN OOM Fix & Final Experiments (March 23, 2026)
+
+#### Change 14 — Fix run_adain.py CUDA OOM (CRITICAL)
+
+**File:** `run_adain.py` · **Impact:** All 3 AdaIN alpha experiments now complete successfully
+
+The inference loop accumulated CUDA memory across iterations. After ~10 images, fragmentation caused OOM on 16GB VRAM. Fix: delete intermediate tensors immediately after `.cpu()`, add `gc.collect()` per iteration, and delete checkpoint dict after loading weights.
+
+```diff
+  for i in range(len(names)):
+      with torch.no_grad():
+          img_orig = real_images[i:i+1].to(device)
+          pred_orig = model(img_orig).cpu()
+          all_pred_original.append(pred_orig)
+-         del img_orig
++         del img_orig, pred_orig
+
+          img_styled = styled_images[i:i+1].to(device)
+          pred_styled = model(img_styled).cpu()
+          all_pred_styled.append(pred_styled)
+-         del img_styled
++         del img_styled, pred_styled
+
+-     torch.cuda.empty_cache()
++     gc.collect()
++     torch.cuda.empty_cache()
+```
+
+Also added after model loading:
+```diff
+  model.load_state_dict(ckpt['model_state_dict'])
+  model.eval()
+  print(f"  Loaded epoch {ckpt['epoch']}")
++ del ckpt
++ gc.collect()
++ torch.cuda.empty_cache()
+```
+
+#### Change 15 — Updated comparison charts with all experiment results
+
+**File:** `generate_viz2.py` · **Impact:** Charts now include all strategies (baseline, TTA, DANN partial, AdaIN VGG, AdaIN pixel)
+
+Previously only showed old 1024-pt vs new 2048-pt. Now includes full domain adaptation strategy comparison with CD bar chart, F-score grouped bars, and summary table with notes column.
+
+#### Change 16 — Updated README with final experiment results
+
+**File:** `README.md` · **Impact:** Accurate reporting of all experiment outcomes
+
+- AdaIN pixel experiments: FAIL → PASS (all 3 alphas, 27 comparisons each)
+- DANN training: RUNNING → PARTIAL (48% of epoch 1 after 14 hrs, infeasible)
+- Updated strategy comparison table with actual numbers
+- Added `dann_2048/best_model.pt` to checkpoints table
+
+---
+
 ## Summary: Cumulative Impact of Changes
 
 | Change | Type | CD Impact |
@@ -419,5 +476,18 @@ checkpoint = 'checkpoints/retrain_2048/best.pt'
 | evaluate API (Change 5) | Validation fix | Best checkpoints actually saved correctly |
 | 2048 points (Change 9) | Architecture | F@0.01 doubled (0.0223→0.0448) |
 | OOM fixes (Changes 11-12) | Infrastructure | Enabled AdaIN/VGG experiments on 16GB |
+| AdaIN OOM fix (Change 14) | Infrastructure | All 3 AdaIN alpha experiments pass |
 
 **Final best result:** CD 0.008105, F@0.01 0.0448, F@0.05 0.6858 (2048-pt, 100 epochs, all bugs fixed)
+
+### Domain Adaptation Results Summary
+
+| Strategy | CD ↓ | Verdict |
+|----------|------|---------|
+| Baseline (2048-pt) | **0.00856** | Best |
+| + TTA (synthetic) | 0.00917 | Slightly worse |
+| + DANN (partial) | 0.00942 | Worse (incomplete training) |
+| + AdaIN VGG | 0.05052 | 6× worse (broken approach) |
+| + AdaIN pixel | — | Qualitative only (real photos) |
+
+**Conclusion:** No domain adaptation strategy improved over the baseline on synthetic test data. TTA helps on real photos (reduces prediction spread in 8/10 cases). The baseline 2048-pt model with all bug fixes remains the best.

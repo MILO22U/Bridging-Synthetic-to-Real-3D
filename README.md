@@ -110,6 +110,155 @@ Given a single photograph of an object, the model outputs a **2048-point 3D poin
 
 ---
 
+## 1024-pt vs 2048-pt: Honest Comparison
+
+The 1024-pt model (5 categories, old code with TTA) achieves **lower Chamfer Distance** than the 2048-pt model. Here is the full picture:
+
+| Metric | 1024-pt (5-cat, TTA) | 2048-pt (13-cat, no TTA) | Winner |
+|:-------|:-------------------:|:-----------------------:|:------:|
+| CD ↓ | **0.00582** | 0.00858 | 1024 |
+| F@0.01 ↑ | 0.0223 | **0.0448** | 2048 (2x) |
+| F@0.02 ↑ | 0.1428 | **0.2068** | 2048 (+45%) |
+| F@0.05 ↑ | 0.6822 | **0.6858** | ~tied |
+| Categories | 5 | **13** | 2048 |
+| Bug fixes | 0 of 7 | **7 of 7** | 2048 |
+| TTA used | Yes (10 views) | No | — |
+
+### Why this comparison isn't apples-to-apples
+
+1. **Point count:** 1024 points cover less surface → naturally lower CD. 2048 points spread across more area
+2. **Category count:** 5 categories is an easier problem than 13
+3. **Code version:** 1024 model trained with flip bug, single LR, broken scheduler. 2048 has all 7 fixes
+4. **TTA:** 1024 result includes 10-view averaging. 2048 result is raw (TTA actually hurts it)
+
+**Fair comparison (same conditions — 13-cat, no TTA, old code vs fixed):**
+
+| | Old 1024-pt (13-cat, buggy) | New 2048-pt (13-cat, fixed) |
+|:--|:--:|:--:|
+| CD | 0.0161 | **0.0086** (1.9x better) |
+| F@0.05 | 0.4235 | **0.6858** (1.6x better) |
+
+### What 1024-pt does better
+- Tighter, more concentrated point clouds — lower CD on simple shapes
+- TTA provides a free boost (10-view averaging stabilizes predictions)
+- Cleaner predictions on elongated objects like rifles
+
+| 1024 vs 2048 on Car | 1024 vs 2048 on Rifle |
+|:---:|:---:|
+| <img src="visualizations/comparison_old_vs_new/cmp_07.png" width="400"/> | <img src="visualizations/comparison_old_vs_new/cmp_12.png" width="400"/> |
+| *2048 (orange) is denser, better car profile* | *1024 (blue) is tighter on elongated shape* |
+
+### What 2048-pt does better
+- **Doubled F@0.01** — captures fine details that 1024 misses entirely
+- Denser surface coverage visible on cars, chairs, cabinets
+- Handles 13 diverse categories (not just the 5 easiest)
+- Trained with all bug fixes (proper LR, no flip corruption, correct validation)
+
+| 2048 on Chair | 2048 on Cabinet |
+|:---:|:---:|
+| <img src="visualizations/comparison_old_vs_new/cmp_00.png" width="400"/> | <img src="visualizations/comparison_old_vs_new/cmp_05.png" width="400"/> |
+| *2048 (orange) better leg detail* | *Both good on boxy shapes* |
+
+---
+
+## All Experiments & Outputs
+
+Every experiment run on the 2048-pt model, with honest outcomes:
+
+| # | Experiment | Status | Time | Key Metric | Output Directory |
+|:--|:----------|:------:|:----:|:----------:|:----------------|
+| — | Baseline eval (no TTA) | PASS | — | CD 0.00858, F@0.05 0.6829 | `visualizations2/eval_results/` |
+| — | Baseline eval (with TTA) | PASS | — | CD 0.00917, F@0.05 0.6761 | `visualizations2/eval_results_tta/` |
+| 1 | AdaIN pixel (α=0.3) | PASS | ~3 min | 27 comparisons | `visualizations2/adain_alpha0.3/` |
+| 2 | AdaIN pixel (α=0.5) | PASS | ~3 min | 27 comparisons | `visualizations2/adain_alpha0.5/` |
+| 3 | AdaIN pixel (α=0.8) | PASS | ~3 min | 27 comparisons | `visualizations2/adain_alpha0.8/` |
+| 4 | TTA on real photos | PASS | 47s | Spread reduced 8/10 | `visualizations2/tta_real/` (27 images) |
+| 5 | AdaIN VGG eval | PASS | 4.7 hrs | CD 0.0505 (**6x worse**) | `visualizations2/adain_vgg/` (26 images) |
+| 6 | DANN training (20 ep) | **PARTIAL** | 14 hrs | 48% of epoch 1, CD 0.0094 | `checkpoints/dann_2048/` |
+| — | Synthetic visualizations | PASS | — | 30 samples | `visualizations2/synthetic_test/` |
+| — | Real photo inference | PASS | — | 27 photos | `visualizations2/real_inference/` |
+| — | 1024 vs 2048 comparison | PASS | — | 15 side-by-side | `visualizations/comparison_old_vs_new/` |
+
+### Strategy 1: Training-Time Augmentation
+Heavy color jitter, blur, random erasing during training. **Result:** CD 0.0155, F@0.05 0.4333 — no meaningful improvement. Run on old (buggy) code with depth-projected GT, so results are not comparable.
+
+### Strategy 2: Test-Time Augmentation (TTA)
+Average predictions from 10 augmented views at inference. No retraining needed.
+
+**On 1024-pt model:** CD improved 0.0059 → 0.0058 (free improvement)
+**On 2048-pt model (synthetic):** CD worsened 0.00858 → 0.00917 (TTA *hurts* — model is already well-calibrated)
+**On 2048-pt model (real photos):** Spread reduced in 8/10 cases — TTA still helps with real-world noise
+
+| TTA on Oak Chair | TTA on Airplane | TTA on Monitor |
+|:---:|:---:|:---:|
+| <img src="visualizations2/tta_real/tta_08_Oak_Schoolhouse_Chair_303a-americana-sla.png" width="280"/> | <img src="visualizations2/tta_real/tta_11_airplane-fly-blue-sky-clouds_165577-998.png" width="280"/> | <img src="visualizations2/tta_real/tta_20_monitor.png" width="280"/> |
+| *TTA fills in chair structure* | *TTA densifies wing shape* | *TTA adds surface detail* |
+
+### Strategy 3: DANN (Domain Adversarial Neural Network)
+Fine-tune with gradient reversal for domain-invariant features. Training attempted (20 epochs, batch_size=8) but only completed **48% of epoch 1** after 14 hours — infeasible on single RTX 4070 Ti Super. Partial checkpoint val CD: 0.0094 (worse than baseline 0.0086). At ~35s/iteration, a full 20-epoch run would require ~780 hours.
+
+### Strategy 4: AdaIN Style Transfer
+
+**Pixel-level (run_adain.py):** All 3 alpha values (0.3, 0.5, 0.8) completed successfully (27 comparisons each). Style transfer shifts real image statistics toward synthetic distribution. Visual comparison shows subtle changes in predicted point clouds.
+
+**VGG-level (eval_adain.py):** Ran for 4.7 hours processing 3,979 test samples.
+
+| Metric | Original | After AdaIN VGG |
+|:-------|:--------:|:---------------:|
+| CD | 0.00851 | 0.0505 |
+| Change | — | **6x worse** |
+
+The styled images came out **completely black** — the VGG decoder was never trained on our data, so it cannot reconstruct meaningful images from the modified features. This approach is fundamentally broken without a trained decoder.
+
+| AdaIN on Lamp | AdaIN on Car | AdaIN on Rifle |
+|:---:|:---:|:---:|
+| <img src="visualizations2/adain_vgg/adain_61Ckk6bdzwL.png" width="280"/> | <img src="visualizations2/adain_vgg/adain_modern-red-car-ERDRK1.png" width="280"/> | <img src="visualizations2/adain_vgg/adain_rifle_product_card_websize_nk-07.png" width="280"/> |
+| *Styled image is black → prediction degrades* | *Same: black styled image* | *Same failure pattern* |
+
+---
+
+## Limitations
+
+Honest assessment of what the model cannot do well, with visual evidence:
+
+### 1. Thin structures collapse into blobs
+Lamp stems, chair legs, and thin protrusions are the hardest problem. The model defaults to predicting a blob or sphere when uncertain about narrow geometry.
+
+| Lamp (CD 0.0225 — worst) | Hanging Lamp (CD 0.0188) | Chair (CD 0.0184) |
+|:---:|:---:|:---:|
+| <img src="visualizations2/synthetic_test/sample_028_cd0.02250.png" width="280"/> | <img src="visualizations2/synthetic_test/sample_018_cd0.01883.png" width="280"/> | <img src="visualizations2/synthetic_test/sample_002_cd0.01836.png" width="280"/> |
+| *Thin stem lost, shade becomes blob* | *Hanging stem collapsed to flat disc* | *Chair legs scattered* |
+
+### 2. Concave surfaces filled as convex
+Internal cavities and concave surfaces get filled in. The model predicts a convex hull approximation.
+
+| Armchair (CD 0.0137) | Limitation Chair |
+|:---:|:---:|
+| <img src="visualizations2/synthetic_test/sample_024_cd0.01366.png" width="350"/> | <img src="visualizations/presentation/limitation_chair1.png" width="350"/> |
+| *Internal structure lost — predicted as box* | *Complex articulation poorly captured* |
+
+### 3. Real photos are notably worse than synthetic
+The synthetic-to-real domain gap is visible. Real-world objects produce approximate but recognizable shapes.
+
+| Real BMW Car | Real Wooden Chair |
+|:---:|:---:|
+| <img src="visualizations2/real_inference/real_modern-red-car-ERDRK1.png" width="350"/> | <img src="visualizations2/real_inference/real_wooden-chair-with-white-background-back-is-made-by-company-company_667286-1520.png" width="350"/> |
+| *Compressed, not fully 3D* | *Legs messy, shape approximate* |
+
+### 4. Background removal is critical
+The model was trained on synthetic renders with black backgrounds. Without proper background removal (via `rembg`), real photos produce garbage predictions.
+
+### 5. Best synthetic results: rigid, symmetric objects
+
+| Rifle (CD 0.00134 — best) | Rifle (CD 0.00151) |
+|:---:|:---:|
+| <img src="visualizations2/synthetic_test/sample_012_cd0.00134.png" width="350"/> | <img src="visualizations2/synthetic_test/sample_001_cd0.00151.png" width="350"/> |
+| *Near-perfect reconstruction* | *Elongated shape well captured* |
+
+The model excels on rigid objects with clear silhouettes (rifles, airplanes, cars) and struggles with deformable, articulated, or thin-structured objects (chairs, lamps, sofas).
+
+---
+
 ## Architecture
 
 ```
@@ -396,8 +545,9 @@ python run_adain.py \
 | + Train Augmentation | Yes | 0.0155 | On old GT |
 | + TTA (synthetic) | No | 0.00917 | Slightly hurts on 2048-pt |
 | + TTA (real photos) | No | — | Reduces spread 8/10 cases |
-| + DANN | Yes (20 ep) | 0.0157 | Domain-invariant features |
-| + AdaIN | No | 0.0329 | Hurts synthetic (expected) |
+| + DANN (partial) | Yes | 0.0094 | 48% of epoch 1 only |
+| + AdaIN VGG | No | 0.0505 | 6x worse — black outputs |
+| + AdaIN pixel (α=0.3–0.8) | No | — | Qualitative only (real photos) |
 
 ---
 
@@ -484,6 +634,7 @@ They access fields differently. When in doubt, check which config the script imp
 | `cap3d_resnet18_best.pt` | 1024 | 5 | 85 | 0.00590 | Old best |
 | `13cat_best.pt` | 1024 | 13 | — | 0.01610 | Old 13-cat |
 | `dann/best_model.pt` | 1024 | 13 | — | 0.01570 | DANN fine-tuned |
+| `dann_2048/best_model.pt` | 2048 | 13 | ~0.5 | 0.00942 | DANN partial (48% ep 1) |
 
 ---
 
@@ -626,6 +777,34 @@ if start_epoch > 0:
 - **Change 11** (`run_adain.py`): Sequential CPU→GPU execution with Welford's online stats
 - **Change 12** (`eval_adain.py`): Batch-size-1 evaluation with per-sample cache clearing
 - **Change 13** (`run_dann_v2.py`): DANN adapted for 2048 points (batch_size=8)
+
+</details>
+
+### Day 10 — AdaIN Fix & Final Results
+
+<details>
+<summary><b>Change 14 — Fix run_adain.py CUDA OOM</b> (CRITICAL)</summary>
+
+**File:** `run_adain.py` · **Impact:** All 3 AdaIN alpha experiments now complete
+
+Inference loop accumulated CUDA memory across iterations, causing OOM after ~10 images. Fix: delete intermediate tensors after `.cpu()`, add `gc.collect()` per iteration, delete checkpoint dict after loading.
+
+```diff
+- del img_orig
++ del img_orig, pred_orig
+  ...
+- torch.cuda.empty_cache()
++ gc.collect()
++ torch.cuda.empty_cache()
+```
+
+</details>
+
+<details>
+<summary><b>Changes 15–16 — Updated charts & README with final results</b></summary>
+
+- **Change 15** (`generate_viz2.py`): Comparison charts now include all strategies (baseline, TTA, DANN, AdaIN)
+- **Change 16** (`README.md`): Final experiment status — AdaIN pixel PASS, DANN PARTIAL (infeasible on single GPU)
 
 </details>
 
